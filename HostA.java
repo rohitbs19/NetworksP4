@@ -14,7 +14,7 @@ import java.util.Vector;
 import java.util.concurrent.Semaphore;
 import java.util.zip.CRC32;
 import java.math.BigInteger;
-
+import java.util.concurrent.ConcurrentHashMap;
 
 
 public class HostA{
@@ -35,7 +35,19 @@ public class HostA{
     Semaphore s;				// guard CS for base, nextSeqNum
     boolean bufferEndLoopExit;// if receiver has completely received the file [INITIALIZE THIS WITH FALSE IN THE START]
     int PACKETSIZE = 1024;
-    int ACKSIZE = 16;
+    int ACKSIZE = 24;
+    int numRetransmitions =0;
+    int numDataPacketSent =0;
+    /*
+    *
+    * GLOBALS FOR THE TIMEOUT COMPUTATION
+    *
+    * */
+    double ERTT=0;
+    double EEDEV=0;
+    double TO=0;
+    double SRTT=0;
+    double SDEV =0;
     //another class for packet
 
     public void print(String s) {
@@ -50,11 +62,13 @@ public class HostA{
     }
 
     public class Timeout extends TimerTask{
+
         public void run(){
             try{
                 s.acquire();
                 System.out.println("Sender: Timeout!");
                 nextSeqNum = base;	// resets nextSeqNum
+                ++numRetransmitions;
                 s.release();
             } catch(InterruptedException e){
                 e.printStackTrace();
@@ -110,6 +124,8 @@ public class HostA{
         return sb.toString();
 
     }
+
+
     public class Packet{
 
         //fields
@@ -118,6 +134,9 @@ public class HostA{
         char flag;
         int ackNum;
         int checksum;
+        long timestamp;
+        Timer timer;
+
         //constructor
         public Packet() {
 
@@ -127,6 +146,9 @@ public class HostA{
             this.dataSeg = dataSeg;
             this.flag = flag;
             this.ackNum = ackNum;
+            this.timestamp = System.nanoTime();
+            this.timer = new Timer();
+
         }
         public void generatePacketFromDatagramPacket(byte[] inData) {
             byte[] sequenceNumber = copyOfRange(inData, 0, 4);
@@ -137,7 +159,10 @@ public class HostA{
             this.ackNum = ByteBuffer.wrap(ackNumber).getInt();
             //print("ackNUM " +this.ackNum);
 
-            byte[] lengthField = copyOfRange(inData, 8, 12);
+            byte[] timeStampBB = copyOfRange(inData, 8, 16);
+            this.timestamp = ByteBuffer.wrap(timeStampBB).getLong();
+
+            byte[] lengthField = copyOfRange(inData, 16, 20);
             int length = ByteBuffer.wrap(lengthField).getInt();
 
            /* int shiftedLength = length << 3;
@@ -153,9 +178,9 @@ public class HostA{
             int extractMaskValue = new BigInteger(extractFlagBitsMask, 2).intValue();
             int shiftedLength = extractMaskValue & length;
             /*
-            *
-            * so the possibilities are 1000, 0100, 0010, 0001
-            * */
+             *
+             * so the possibilities are 1000, 0100, 0010, 0001
+             * */
             String SynMask = "00000000000000000000000000000111";
             int synMaskValue = new BigInteger(SynMask, 2).intValue();
             String FinMask = "00000000000000000000000000001011";
@@ -186,13 +211,11 @@ public class HostA{
 
 
             int i=0;
-            //byte[] type = copyOfRange(inData, 12, 14);
-            //print("type = " + type);
-            //this.flag = ByteBuffer.wrap(type).getChar();
+
             //System.out.println("INSIDE GENERATEPACKET FROM DATAGRAM FLAG:  " + this.flag);
-            byte[] checksumComputed = copyOfRange(inData, 12, 16);
+            byte[] checksumComputed = copyOfRange(inData, 20, 24);
             this.checksum = ByteBuffer.wrap(checksumComputed).getInt();
-            byte[] dataField = copyOfRange(inData, 16, inData.length);
+            byte[] dataField = copyOfRange(inData, 24, inData.length);
             this.dataSeg = dataField;
         }
         public int computeChecksum() {
@@ -280,12 +303,27 @@ public class HostA{
                 data = ByteBuffer.allocate(this.dataSeg.length).put(this.dataSeg).array();
                 lengthDataSegment = this.dataSeg.length;
             }
+            byte[] timeStampBB = ByteBuffer.allocate(8).putLong(this.timestamp).array();
+
             // cumulative packet containing all data
-            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 4 + 4+ lengthDataSegment);
+            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + lengthDataSegment);
             packet.put(seqNumberBb);
             packet.put(ackNumBB);
+            packet.put(timeStampBB);
             packet.put(dataLength);
             packet.put(checksumBB);
+
+            /*
+             *
+             * do the timer stuff
+             *
+             * */
+
+            this.timer.schedule(new Timeout(), (long)TO);
+
+            /*
+             * TIMER STUFF ENDS
+             * */
             //packet.put(type);
             if (this.dataSeg != null) {
                 packet.put(data);
@@ -309,6 +347,16 @@ public class HostA{
 
             this.dataSeg = fileData;
         }
+
+        public Timer getTimer() {
+
+            return this.timer;
+        }
+
+        public long getTimestamp() {
+            return this.timestamp;
+        }
+
         public void packetString() {
             System.out.println("***************PACKET1*******************");
             System.out.println("SEQ NUM: "+this.seqNumber);
@@ -366,9 +414,17 @@ public class HostA{
                         Packet pkt_instance = new Packet(0, null, 'S', 0);
                         ByteBuffer syn_pkt = pkt_instance.createPacket();
                         pkt_instance.packetString();
+                        /*
+                        *
+                        * as this is the first ever packet to be sent from the senders side
+                        * */
+                        TO = 5000;
                         out.send(new DatagramPacket(syn_pkt.array(), syn_pkt.array().length,
                                 dest_addr, dest_port));
                         System.out.println("sent the first syn Packet; SYN PACKET #" + pkt_instance.seqNumber);
+                        print("snd " + pkt_instance.getTimestamp() + " " + pkt_instance.flag + " " +
+                                pkt_instance.seqNumber + " " + "0" + " "
+                                + pkt_instance.ackNum);
 
                         // THREE-WAY HANDSHAKE
                         try {
@@ -397,6 +453,9 @@ public class HostA{
                                     ByteBuffer ackPkt = ackPkt_instance.createPacket();
                                     out.send(new DatagramPacket(ackPkt.array(), ackPkt.array().length, dest_addr, dest_port));
                                     System.out.println("the final ack for the handshake has been sent");
+                                    print("snd " + ackPkt_instance.getTimestamp() + " " + ackPkt_instance.flag + " " +
+                                            ackPkt_instance.seqNumber + " " + "0" + " "
+                                            + ackPkt_instance.ackNum);
                                     //Thread.sleep(10000);
                                     sleep(120);
                                     ackHandShake = true;
@@ -420,10 +479,8 @@ public class HostA{
                                         if(nextSeqNum < base + win_size) {
                                             s.acquire();
 
-                                            if (base == nextSeqNum) {
-                                                setTimer(true);
-                                            }
-                                            byte[] dataRead = new byte[PACKETSIZE-16];
+
+                                            byte[] dataRead = new byte[PACKETSIZE-24];
                                             Packet newDataPktInstance = null;
                                             /*
                                              * NOTE:	that I have changed the packetlist to contain elements of Packet type
@@ -450,8 +507,11 @@ public class HostA{
 
                                             ByteBuffer normalPkt = newDataPktInstance.createPacket();
                                             out.send(new DatagramPacket(normalPkt.array(), normalPkt.array().length, dest_addr, dest_port));
-                                            System.out.println("PACKET SENT SYN #" + newDataPktInstance.seqNumber);
-
+                                            ++numDataPacketSent;
+                                            //System.out.println("PACKET SENT SYN #" + newDataPktInstance.seqNumber);
+                                            print("snd " + newDataPktInstance.getTimestamp() + " " + newDataPktInstance.flag + " " +
+                                                    newDataPktInstance.seqNumber + " " + newDataPktInstance.dataSeg.length + " "
+                                                    + newDataPktInstance.ackNum);
                                             if (!bufferEndLoopExit) {
                                                 nextSeqNum++;
                                             }
@@ -520,6 +580,21 @@ public class HostA{
         }
 
         //run method override
+        public double adaptiveTimeOutCompute(int S, Packet currPacket) {
+
+            if (S == 0) {
+                ERTT = System.nanoTime() - currPacket.getTimestamp();
+                TO = 2 * ERTT;
+            }else{
+                SRTT = System.nanoTime() - currPacket.getTimestamp();
+                ERTT = (0.875*ERTT) + (0.125*SRTT);
+                EEDEV = (0.75 * EEDEV) + (0.25 * SDEV);
+                TO = ERTT + (4 * SDEV);
+            }
+
+            return TO;
+
+        }
         public void run() {
             try {
 
@@ -532,6 +607,9 @@ public class HostA{
                         in.receive(receivedPacket);
                         Packet receivedAck = new Packet();
                         receivedAck.generatePacketFromDatagramPacket(receivedAckData);
+                        print("rcv " + receivedAck.getTimestamp() + " " + receivedAck.flag + " " +
+                                receivedAck.seqNumber + " " + "0" + " "
+                                + receivedAck.ackNum);
                         //receivedAck.packetString();
 
                         int ackNumberFromPkt = ackNumExtract(receivedAckData);
@@ -558,19 +636,25 @@ public class HostA{
                                 if (base == ackNumberFromPkt+1) {
                                     //then retransmit condition that is
                                     s.acquire();
-                                    setTimer(false);
+                                    packetsList.get(ackNumberFromPkt).getTimer().cancel();
                                     nextSeqNum = base;
+                                    ++numRetransmitions;
                                     s.release();
                                 } else if (ackNumberFromPkt == -2) {
                                     //probably have to do complete fin shake
                                     bufferEndLoopExit = true;
                                 } else {
-                                    base = ackNumberFromPkt++;
+                                    base = ackNumberFromPkt+1;
                                     s.acquire();
-                                    if (base == nextSeqNum) {
+                                    /*if (base == nextSeqNum) {
                                         setTimer(false);
                                     }else{
                                         setTimer(true);
+                                    }*/
+                                    adaptiveTimeOutCompute(receivedAck.ackNum, receivedAck);
+                                    print("PACKET WITH ACK #" + ackNumberFromPkt + " WAS RECEIVED IN THE SENDER");
+                                    if (packetsList.get(ackNumberFromPkt) != null) {
+                                        packetsList.get(ackNumberFromPkt).getTimer().cancel();
                                     }
                                     s.release();
                                     //refresh the timer for this

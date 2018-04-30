@@ -179,6 +179,7 @@ public class receiver{
         char flag;
         int ackNum;
         int checksum;
+        long timeStamp;
         //packet fields copy from sender
 
 
@@ -194,6 +195,7 @@ public class receiver{
             this.dataSeg = dataSeg;
             this.flag = flag;
             this.ackNum = ackNum;
+            this.timeStamp = System.nanoTime();
         }
 
 
@@ -228,8 +230,10 @@ public class receiver{
             byte[] ackNumber = copyOfRange(inData, 4, 8);
             this.ackNum = ByteBuffer.wrap(ackNumber).getInt();
             //print("ackNUM " +this.ackNum);
+            byte[] timeStamp = copyOfRange(inData, 8, 16);
+            this.timeStamp = ByteBuffer.wrap(timeStamp).getLong();
 
-            byte[] lengthField = copyOfRange(inData, 8, 12);
+            byte[] lengthField = copyOfRange(inData, 16, 20);
             int length = ByteBuffer.wrap(lengthField).getInt();
 
            /* int shiftedLength = length << 3;
@@ -279,9 +283,9 @@ public class receiver{
             //print("type = " + type);
             //this.flag = ByteBuffer.wrap(type).getChar();
             //System.out.println("INSIDE GENERATEPACKET FROM DATAGRAM FLAG:  " + this.flag);
-            byte[] checksumComputed = copyOfRange(inData, 12, 16);
+            byte[] checksumComputed = copyOfRange(inData, 20, 24);
             this.checksum = ByteBuffer.wrap(checksumComputed).getInt();
-            byte[] dataField = copyOfRange(inData, 16, inData.length);
+            byte[] dataField = copyOfRange(inData, 24, inData.length);
             this.dataSeg = dataField;
         }
         /*
@@ -379,10 +383,14 @@ public class receiver{
                 data = ByteBuffer.allocate(this.dataSeg.length).put(this.dataSeg).array();
                 lengthDataSegment = this.dataSeg.length;
             }
+            byte [] timeStampBB = ByteBuffer.allocate(8).putLong(this.timeStamp).array();
+
+
             // cumulative packet containing all data
-            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 4 +4 + lengthDataSegment);
+            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + lengthDataSegment);
             packet.put(seqNumberBb);
             packet.put(ackNumBB);
+            packet.put(timeStampBB);
             packet.put(dataLength);
             packet.put(checksumBB);
             //packet.put(type);
@@ -390,9 +398,6 @@ public class receiver{
                 packet.put(data);
             }// handling data
             return packet;
-
-
-
         }
 
         public void packetString() {
@@ -405,8 +410,6 @@ public class receiver{
             }
             System.out.println("***************PACKET*******************");
         }
-
-
     }
 
 
@@ -426,7 +429,6 @@ public class receiver{
              * the majority of the code fragment
              *
              * */
-
             socket_1 = new DatagramSocket(socket_1_destPort); //incoming channel
             socket_2 = new DatagramSocket(); //outgoing channel
 
@@ -474,11 +476,12 @@ public class receiver{
                     Packet ourPacketFormat = new Packet();
 
                     ourPacketFormat.generatePacketFromDatagramPacket(data);
+                    print("rcv " + ourPacketFormat.timeStamp + " " + ourPacketFormat.flag + " " +
+                            ourPacketFormat.seqNumber + " " + ourPacketFormat.dataSeg.length + " "
+                            + ourPacketFormat.ackNum);
                     ourPacketFormat.packetString();
                     System.out.println("is Valid SYN  = " + ourPacketFormat.isValidSyn());
                     if (ourPacketFormat.isValidSyn()) {
-
-
                         //now send the syn+ack packet
                         // send proper args for a syn pack
                         /*
@@ -499,6 +502,9 @@ public class receiver{
                                     synackPkt.array().length,
                                     destAddr,
                                     socket_2_destPort));
+                            print("snd " + synack.timeStamp + " " + synack.flag + " " +
+                                    synack.seqNumber + " " + "0" + " "
+                                    + synack.ackNum);
                             setTimer(true);
                             System.out.println("sent a syn + ack packet");
 
@@ -510,8 +516,12 @@ public class receiver{
                             *
                             * */
                             socket_1.receive(inPkt);
+
                             Packet ackPacket = new Packet();
                             ackPacket.generatePacketFromDatagramPacket(data);
+                            print("rcv " + ackPacket.timeStamp + " " + ackPacket.flag + " " +
+                                    ackPacket.seqNumber + " " + "0" + " "
+                                    + ackPacket.ackNum);
                             ackPacket.packetString();
                             if (ackPacket.isValidAck()) {
                                 setTimer(false);
@@ -544,6 +554,9 @@ public class receiver{
                         socket_1.receive(inPkt);
                         Packet dataPacket = new Packet();
                         dataPacket.generatePacketFromDatagramPacket(data);
+                        print("rcv " + dataPacket.timeStamp + " " + dataPacket.flag + " " +
+                                dataPacket.seqNumber + " " + dataPacket.dataSeg.length + " "
+                                + dataPacket.ackNum);
 
                         /*
                         *
@@ -573,11 +586,15 @@ public class receiver{
                                      * */
                                     Packet tearDown = new Packet(0,null,'F', -2);
                                     ByteBuffer finPkt = tearDown.createPacket();
+
                                     /*
                                      * assumption that teardown is indicated by -2 check sender and agree with this convention
                                      * prob: 6-66
                                      * */
                                     socket_2.send(new DatagramPacket(finPkt.array(), finPkt.array().length, destAddr, socket_2_destPort));
+                                    print("snd " + tearDown.timeStamp + " " + tearDown.flag + " " +
+                                            tearDown.seqNumber + " " + "0" + " "
+                                            + tearDown.ackNum);
                                     transferComplete = true;
                                     System.out.println("closing connection phase has been reached");
                                     continue;
@@ -595,10 +612,13 @@ public class receiver{
                                     ByteBuffer normalAckPkt = normalAck.createPacket();
                                     normalAck.packetString();
                                     socket_2.send(new DatagramPacket(normalAckPkt.array(), normalAckPkt.array().length, destAddr, socket_2_destPort));
+                                    print("snd " + normalAck.timeStamp + " " + normalAck.flag + " " +
+                                            normalAck.seqNumber + " " + "0"+ " "
+                                            + normalAck.ackNum);
                                     System.out.println("sent a normal ack with ack #" + dataPacket.seqNumber);
                                 }
 
-                                fileOutStream.write(data, 16, inPkt.getLength() - 16);
+                                fileOutStream.write(data, 24, inPkt.getLength() - 24);
                                 nextSeqNum++;
                                 print("seqNUMBER CONTAINED IN THE DATA PACKET RECEIVED " + dataPacket.seqNumber);
                                 
@@ -616,6 +636,9 @@ public class receiver{
                                 dupAck.packetString();
                                 ByteBuffer dupAckPkt = dupAck.createPacket();
                                 socket_2.send(new DatagramPacket(dupAckPkt.array(), dupAckPkt.array().length, destAddr, socket_2_destPort));
+                                print("snd " + dupAck.timeStamp + " " + dupAck.flag + " " +
+                                        dupAck.seqNumber + " " + "0" + " "
+                                        + dupAck.ackNum);
                                 System.out.println("dup ack sent ack # " + prevSeqNum);
                             }
 
