@@ -109,7 +109,7 @@ public class receiver{
                 System.out.println("receiver: Timeout!");
                 Packet SYNACK = new Packet(0, null, 'Q', 1);
                 ByteBuffer synack = SYNACK.createPacket();
-                socket_2.send(new DatagramPacket(synack.array(), synack.array().length,InetAddress.getByName("127.0.0.1"),destPortForTimer));
+                socket_2.send(new DatagramPacket(synack.array(), synack.array().length,InetAddress.getByName("10.0.1.101"),destPortForTimer));
                 s.release();
             } catch(Exception e){
                 e.printStackTrace();
@@ -442,7 +442,7 @@ public class receiver{
 
                 DatagramPacket inPkt = new DatagramPacket(data, data.length);
 
-                InetAddress destAddr = InetAddress.getByName("127.0.0.1");
+                InetAddress destAddr = InetAddress.getByName("10.0.1.101");
 
                 FileOutputStream fileOutStream = null;
 

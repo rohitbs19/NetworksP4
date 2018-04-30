@@ -396,7 +396,7 @@ public class HostA{
 
         public void run() {
             try {
-                dest_addr = InetAddress.getByName("127.0.0.1");
+                dest_addr = InetAddress.getByName("10.0.2.102");
                 boolean isTransmitted_handshake = false; // ensures 16 retransmissions, else reports error
                 int numRetransmissions = 0;
                 FileInputStream fileInStream = new FileInputStream(new File(path));
@@ -428,7 +428,7 @@ public class HostA{
 
                         // THREE-WAY HANDSHAKE
                         try {
-                            sleep(120);
+                            sleep(1000);
                             numRetransmissions++;
 
                             // if the thread is interruputed, this means that
@@ -487,7 +487,9 @@ public class HostA{
                                              * */
                                             if (nextSeqNum < packetsList.size()) {
                                                 newDataPktInstance = packetsList.get(nextSeqNum);
-                                            }
+						newDataPktInstance.timer = new Timer();
+                                       		print("RETRANSMITTING PACKET WITH SYN #" + newDataPktInstance.seqNumber);     
+						}
                                             // if normal case and not retransmission
                                             else {
                                                 // read the slice of the file (set as 1024 for convenience now but has to be
@@ -504,14 +506,16 @@ public class HostA{
                                                 packetsList.add(newDataPktInstance);
                                                 // this might cause null pointer
                                             }
-
+						
                                             ByteBuffer normalPkt = newDataPktInstance.createPacket();
-                                            out.send(new DatagramPacket(normalPkt.array(), normalPkt.array().length, dest_addr, dest_port));
-                                            ++numDataPacketSent;
+                                            newDataPktInstance.packetString();
+					out.send(new DatagramPacket(normalPkt.array(), normalPkt.array().length, dest_addr, dest_port));
+                                            
+					    ++numDataPacketSent;
                                             //System.out.println("PACKET SENT SYN #" + newDataPktInstance.seqNumber);
-                                            print("snd " + newDataPktInstance.getTimestamp() + " " + newDataPktInstance.flag + " " +
-                                                    newDataPktInstance.seqNumber + " " + newDataPktInstance.dataSeg.length + " "
-                                                    + newDataPktInstance.ackNum);
+                                        //    print("snd " + newDataPktInstance.getTimestamp() + " " + newDataPktInstance.flag + " " +
+                                          //          newDataPktInstance.seqNumber + " " + newDataPktInstance.dataSeg.length + " "
+                                            //        + newDataPktInstance.ackNum);
                                             if (!bufferEndLoopExit) {
                                                 nextSeqNum++;
                                             }
