@@ -1,4 +1,5 @@
 //import com.sun.xml.internal.bind.v2.runtime.reflect.Lister;
+import java.math.BigInteger;
 import java.util.Timer;
 import java.util.TimerTask;
 import javax.xml.crypto.Data;
@@ -104,16 +105,62 @@ public class receiver{
     public class Timeout extends TimerTask {
         public void run(){
             try{
-                s.acquire();	/***** enter CS *****/
+                s.acquire();
                 System.out.println("receiver: Timeout!");
                 Packet SYNACK = new Packet(0, null, 'Q', 1);
                 ByteBuffer synack = SYNACK.createPacket();
                 socket_2.send(new DatagramPacket(synack.array(), synack.array().length,InetAddress.getByName("127.0.0.1"),destPortForTimer));
-                s.release();	/***** leave CS *****/
+                s.release();
             } catch(Exception e){
                 e.printStackTrace();
             }
         }
+    }
+    public String addBinary(String p1, String p2) {
+
+        // Initialize result
+        String result = "";
+
+        // Initialize digit sum
+        int s = 0;
+
+        // Travers both strings starting
+        // from last characters
+        int i = p1.length() - 1, j = p2.length() - 1;
+        while (i >= 0 || j >= 0 || s == 1)
+        {
+
+            // Comput sum of last
+            // digits and carry
+            s += ((i >= 0)? p1.charAt(i) - '0': 0);
+            s += ((j >= 0)? p2.charAt(j) - '0': 0);
+
+            // If current digit sum is
+            // 1 or 3, add 1 to result
+            result = (char)(s % 2 + '0') + result;
+
+            // Compute carry
+            s /= 2;
+
+            // Move to next digits
+            i--; j--;
+        }
+
+        return result;
+
+    }
+    public String invert(String binary) {
+        StringBuilder sb = new StringBuilder();
+        for(int i = 0; i < binary.length(); i++) {
+            if(binary.charAt(i) == '0') {
+                sb.append('1');
+            }
+            else {
+                sb.append('0');
+            }
+        }
+        return sb.toString();
+
     }
     /*
      *
@@ -131,6 +178,7 @@ public class receiver{
         byte[] dataSeg;
         char flag;
         int ackNum;
+        int checksum;
         //packet fields copy from sender
 
 
@@ -152,7 +200,7 @@ public class receiver{
         public boolean isValidSyn() {
 
 
-            if (this.flag == 'S') {
+            if (this.flag == 'S' && this.checksum == computeChecksum()) {
                 return true;
             }
             return false;
@@ -160,7 +208,7 @@ public class receiver{
 
         public boolean isValidAck() {
 
-            if (this.flag == 'A') {
+            if (this.flag == 'A' && this.checksum == computeChecksum()) {
                 return true;
             }
             return false;
@@ -177,8 +225,9 @@ public class receiver{
             this.seqNumber = ByteBuffer.wrap(sequenceNumber).getInt();
 
 
-            byte[] ackNumer = copyOfRange(inData, 4, 8);
-            this.ackNum = ByteBuffer.wrap(ackNumer).getInt();
+            byte[] ackNumber = copyOfRange(inData, 4, 8);
+            this.ackNum = ByteBuffer.wrap(ackNumber).getInt();
+            //print("ackNUM " +this.ackNum);
 
             byte[] lengthField = copyOfRange(inData, 8, 12);
             int length = ByteBuffer.wrap(lengthField).getInt();
@@ -191,11 +240,48 @@ public class receiver{
             } else if ((shiftedLength + 1) == length) {
                 this.flag = 'A';
             }*/
-            byte[] type = copyOfRange(inData, 12, 14);
-            this.flag = ByteBuffer.wrap(type).getChar();
-            //System.out.println("INSIDE GENERATEPACKET FROM DATAGRAM FLAG:  " + this.flag);
+            int i =0;
+            String extractFlagBitsMask = "00000000000000000000000000001111";
+            int extractMaskValue = new BigInteger(extractFlagBitsMask, 2).intValue();
+            int shiftedLength = extractMaskValue & length;
+            /*
+             *
+             * so the possibilities are 1000, 0100, 0010, 0001
+             * */
+            String SynMask = "00000000000000000000000000000111";
+            int synMaskValue = new BigInteger(SynMask, 2).intValue();
+            String FinMask = "00000000000000000000000000001011";
+            int finMaskValue = new BigInteger(FinMask, 2).intValue();
+            String AckMask = "00000000000000000000000000001101";
+            int ackMaskValue = new BigInteger(AckMask, 2).intValue();
+            String DMask = "00000000000000000000000000001110";
+            int dMaskValue = new BigInteger(DMask, 2).intValue();
+            String synackMask = "00000000000000000000000000000101";
+            int synackValue = new BigInteger(synackMask, 2).intValue();
 
-            byte[] dataField = copyOfRange(inData, 14, inData.length);
+            if ((shiftedLength & synMaskValue) == 0) {
+                print("PACKET TYPE IS --> SYN1");
+                this.flag = 'S';
+            }else if((shiftedLength & ackMaskValue) == 0){
+                print("PACKET TYPE IS --> ACK1");
+                this.flag = 'A';
+            } else if ((shiftedLength & finMaskValue) == 0) {
+                print("PACKET TYPE IS --> FIN1");
+                this.flag = 'F';
+            } else if ((shiftedLength & dMaskValue) == 0) {
+                print("PACKET TYPE IS --> DATA1");
+                this.flag = 'D';
+            } else if ((shiftedLength & synackValue) == 0) {
+                print("PACKET TYPE IS --> SYN + ACK");
+                this.flag = 'Q';
+            }
+            //byte[] type = copyOfRange(inData, 12, 14);
+            //print("type = " + type);
+            //this.flag = ByteBuffer.wrap(type).getChar();
+            //System.out.println("INSIDE GENERATEPACKET FROM DATAGRAM FLAG:  " + this.flag);
+            byte[] checksumComputed = copyOfRange(inData, 12, 16);
+            this.checksum = ByteBuffer.wrap(checksumComputed).getInt();
+            byte[] dataField = copyOfRange(inData, 16, inData.length);
             this.dataSeg = dataField;
         }
         /*
@@ -204,11 +290,44 @@ public class receiver{
         * */
         public boolean isValidPacket() {
 
+            if (this.checksum == computeChecksum()) {
+                return true;
+            }
 
-
-            return true;
+            return false;
         }
 
+        public int computeChecksum() {
+            String seqNumInBinary = null;
+            if(this.flag=='A')
+            seqNumInBinary= Integer.toBinaryString(this.ackNum);
+            else
+                seqNumInBinary = Integer.toBinaryString(this.seqNumber);
+
+            String temp = null;
+
+            if (seqNumInBinary.length() != 16) {
+
+                int offset = 16 - seqNumInBinary.length();
+                StringBuilder stringB = new StringBuilder();
+
+                for(int i =0; i< offset; i++) {
+                    stringB.append('0');
+                }
+                stringB.append(seqNumInBinary);
+                temp = stringB.toString();
+            }
+
+            String part1 = temp.substring(0, 8);
+            String part2 = temp.substring(8);
+
+            String addition = addBinary(part1, part2);
+
+            addition = invert(addition);
+
+            //this.checksum = Short.parseShort(addition);
+            return Integer.parseInt(addition);
+        }
         public ByteBuffer createPacket() {
             // sequence number
 
@@ -227,28 +346,33 @@ public class receiver{
             }else{
                 length=0;
             }
-            // depending on the flag, we will set the packet with the appropriate flag
 
+            int shiftedLength = length << 4;
+            String mask;
+            if(flag=='S') {
+                mask = "00000000000000000000000000001000";
+            } else if(flag == 'F') {
+                mask = "00000000000000000000000000000100";
+            } else if(flag=='A') {
+                mask = "00000000000000000000000000000010";
+            }else if(flag=='D'){
+                mask = "00000000000000000000000000000001";
+            }else if(flag=='Q'){
+                mask = "00000000000000000000000000001010";
+            }
+            else{
+                mask = "00000000000000000000000000000000";
+            }
+            int value = new BigInteger(mask, 2).intValue();
+            length = value | shiftedLength;
 
-			/*int bitFlag = 0;
-
-			if(flag=='S') {
-				bitFlag = 4;
-			} else if(flag == 'F') {
-				bitFlag = 2;
-			} else if(flag=='A') {
-				bitFlag = 1;
-			}
-
-
-			// shifting the length to accomodate for SFA
-			length = length << 3;
-			length = length + bitFlag;*/
-
+            print("LENGTH FIELD:   " + Integer.toBinaryString(length));
             //  convert to byte array
-            int i =0;
+            //int i =0;
+            this.checksum = computeChecksum();
+            byte[] checksumBB = ByteBuffer.allocate(4).putInt(this.checksum).array();
             byte[] dataLength = ByteBuffer.allocate(4).putInt(length).array();
-            byte[] type = ByteBuffer.allocate(2).putChar(this.flag).array();
+           // byte[] type = ByteBuffer.allocate(2).putChar(this.flag).array();
             byte[] data =null;
             int lengthDataSegment=0;
             if(this.dataSeg!=null) {
@@ -256,15 +380,12 @@ public class receiver{
                 lengthDataSegment = this.dataSeg.length;
             }
             // cumulative packet containing all data
-            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 4 +2+ lengthDataSegment);
+            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 4 +4 + lengthDataSegment);
             packet.put(seqNumberBb);
             packet.put(ackNumBB);
             packet.put(dataLength);
-            packet.put(type);
-            byte [] example = copyOfRange(packet.array(), 12, 14);
-            char timepass = ByteBuffer.wrap(example).getChar();
-            //System.out.println("(((((((((((((((((((((((((((((((((((((((((((((    " +timepass);
-
+            packet.put(checksumBB);
+            //packet.put(type);
             if (this.dataSeg != null) {
                 packet.put(data);
             }// handling data
@@ -446,7 +567,7 @@ public class receiver{
                                 * assumption is being made prob:4-66
                                 * with regard to the length of packet
                                 * */
-                                if (inPkt.getLength() == 14) {
+                                if (inPkt.getLength() == 16) {
                                     /*
                                      * prob: 5-66 [args problem]
                                      * */
@@ -477,7 +598,7 @@ public class receiver{
                                     System.out.println("sent a normal ack with ack #" + dataPacket.seqNumber);
                                 }
 
-                                fileOutStream.write(data, 14, inPkt.getLength() - 14);
+                                fileOutStream.write(data, 16, inPkt.getLength() - 16);
                                 nextSeqNum++;
                                 print("seqNUMBER CONTAINED IN THE DATA PACKET RECEIVED " + dataPacket.seqNumber);
                                 

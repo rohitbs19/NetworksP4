@@ -13,7 +13,7 @@ import java.util.TimerTask;
 import java.util.Vector;
 import java.util.concurrent.Semaphore;
 import java.util.zip.CRC32;
-
+import java.math.BigInteger;
 
 
 
@@ -21,22 +21,22 @@ public class HostA{
 
 
 
-	//fields for the main class
-	static int data_size = 988;			// (checksum:8, seqNum:4, data<=988) Bytes : 1000 Bytes total
-	static int win_size = 10;
-	static int timeoutVal = 300;		// 120ms until timeout
+    //fields for the main class
+    static int data_size = 988;			// (checksum:8, seqNum:4, data<=988) Bytes : 1000 Bytes total
+    static int win_size = 10;
+    static int timeoutVal = 300;		// 120ms until timeout
 
-	int base;					// base sequence number of window
-	int nextSeqNum;				// next sequence number in window
-	String path;				// path of file to be sent
-	String fileName;			// filename to be saved by receiver
-	Vector<Packet> packetsList;	// list of generated packets
-	Timer timer;				// for timeouts
-	Semaphore s;				// guard CS for base, nextSeqNum
-	boolean bufferEndLoopExit;// if receiver has completely received the file [INITIALIZE THIS WITH FALSE IN THE START]
-	 int PACKETSIZE = 1024;
-	 int ACKSIZE = 14;
-	//another class for packet
+    int base;					// base sequence number of window
+    int nextSeqNum;				// next sequence number in window
+    String path;				// path of file to be sent
+    String fileName;			// filename to be saved by receiver
+    Vector<Packet> packetsList;	// list of generated packets
+    Timer timer;				// for timeouts
+    Semaphore s;				// guard CS for base, nextSeqNum
+    boolean bufferEndLoopExit;// if receiver has completely received the file [INITIALIZE THIS WITH FALSE IN THE START]
+    int PACKETSIZE = 1024;
+    int ACKSIZE = 16;
+    //another class for packet
 
     public void print(String s) {
         System.out.println(s);
@@ -52,16 +52,64 @@ public class HostA{
     public class Timeout extends TimerTask{
         public void run(){
             try{
-                s.acquire();	/***** enter CS *****/
+                s.acquire();
                 System.out.println("Sender: Timeout!");
                 nextSeqNum = base;	// resets nextSeqNum
-                s.release();	/***** leave CS *****/
+                s.release();
             } catch(InterruptedException e){
                 e.printStackTrace();
             }
         }
     }
+    public String addBinary(String p1, String p2) {
 
+        // Initialize result
+        String result = "";
+
+        // Initialize digit sum
+        int s = 0;
+
+        // Travers both strings starting
+        // from last characters
+
+        int i = p1.length() - 1, j = p2.length() - 1;
+        while (i >= 0 || j >= 0 || s == 1)
+        {
+
+            // Comput sum of last
+            // digits and carry
+            s += ((i >= 0)? p1.charAt(i) - '0': 0);
+            s += ((j >= 0)? p2.charAt(j) - '0': 0);
+            int h=0;
+            // If current digit sum is
+            // 1 or 3, add 1 to result
+            result = (char)(s % 2 + '0') + result;
+
+            // Compute carry
+            s /= 2;
+
+            // Move to next digits
+            i--;
+
+            j--;
+        }
+
+        return result;
+
+    }
+    public String invert(String binary) {
+        StringBuilder sb = new StringBuilder();
+        for(int i = 0; i < binary.length(); i++) {
+            if(binary.charAt(i) == '0') {
+                sb.append('1');
+            }
+            else {
+                sb.append('0');
+            }
+        }
+        return sb.toString();
+
+    }
     public class Packet{
 
         //fields
@@ -69,7 +117,7 @@ public class HostA{
         byte[] dataSeg;
         char flag;
         int ackNum;
-
+        int checksum;
         //constructor
         public Packet() {
 
@@ -100,16 +148,84 @@ public class HostA{
             } else if ((shiftedLength + 1) == length) {
                 this.flag = 'A';
             }*/
-           int i=0;
-            byte[] type = copyOfRange(inData, 12, 14);
-           //print("type = " + type);
-            this.flag = ByteBuffer.wrap(type).getChar();
-            //System.out.println("INSIDE GENERATEPACKET FROM DATAGRAM FLAG:  " + this.flag);
 
-            byte[] dataField = copyOfRange(inData, 14, inData.length);
+            String extractFlagBitsMask = "00000000000000000000000000001111";
+            int extractMaskValue = new BigInteger(extractFlagBitsMask, 2).intValue();
+            int shiftedLength = extractMaskValue & length;
+            /*
+            *
+            * so the possibilities are 1000, 0100, 0010, 0001
+            * */
+            String SynMask = "00000000000000000000000000000111";
+            int synMaskValue = new BigInteger(SynMask, 2).intValue();
+            String FinMask = "00000000000000000000000000001011";
+            int finMaskValue = new BigInteger(FinMask, 2).intValue();
+            String AckMask = "00000000000000000000000000001101";
+            int ackMaskValue = new BigInteger(AckMask, 2).intValue();
+            String DMask = "00000000000000000000000000001110";
+            int dMaskValue = new BigInteger(DMask, 2).intValue();
+            String synackMask = "00000000000000000000000000000101";
+            int synackValue = new BigInteger(synackMask, 2).intValue();
+
+            if ((shiftedLength & synMaskValue) == 0) {
+                print("PACKET TYPE IS --> SYN");
+                this.flag = 'S';
+            }else if((shiftedLength & ackMaskValue) == 0){
+                print("PACKET TYPE IS --> ACK");
+                this.flag = 'A';
+            } else if ((shiftedLength & finMaskValue) == 0) {
+                print("PACKET TYPE IS --> FIN");
+                this.flag = 'F';
+            } else if ((shiftedLength & dMaskValue) == 0) {
+                print("PACKET TYPE IS --> DATA");
+                this.flag = 'D';
+            } else if ((shiftedLength & synackValue) == 0) {
+                print("PACKET TYPE IS --> SYN + ACK");
+                this.flag = 'Q';
+            }
+
+
+            int i=0;
+            //byte[] type = copyOfRange(inData, 12, 14);
+            //print("type = " + type);
+            //this.flag = ByteBuffer.wrap(type).getChar();
+            //System.out.println("INSIDE GENERATEPACKET FROM DATAGRAM FLAG:  " + this.flag);
+            byte[] checksumComputed = copyOfRange(inData, 12, 16);
+            this.checksum = ByteBuffer.wrap(checksumComputed).getInt();
+            byte[] dataField = copyOfRange(inData, 16, inData.length);
             this.dataSeg = dataField;
         }
+        public int computeChecksum() {
+            String seqNumInBinary = null;
+            if(this.flag=='A')
+                seqNumInBinary= Integer.toBinaryString(this.ackNum);
+            else
+                seqNumInBinary = Integer.toBinaryString(this.seqNumber);
 
+            String temp = null;
+
+            if (seqNumInBinary.length() != 16) {
+                int h=0;
+                int offset = 16 - seqNumInBinary.length();
+                StringBuilder stringB = new StringBuilder();
+
+                for(int i =0; i< offset; i++) {
+                    stringB.append('0');
+                }
+                stringB.append(seqNumInBinary);
+                temp = stringB.toString();
+            }
+
+            String part1 = temp.substring(0, 8);
+            String part2 = temp.substring(8);
+
+            String addition = addBinary(part1, part2);
+
+            addition = invert(addition);
+
+            //this.checksum = Short.parseShort(addition);
+            return Integer.parseInt(addition);
+        }
         public ByteBuffer createPacket() {
             // sequence number
 
@@ -128,27 +244,36 @@ public class HostA{
             }else{
                 length=0;
             }
-            // depending on the flag, we will set the packet with the appropriate flag
 
+            int shiftedLength = length << 4;
+            String mask;
+            if(flag=='S') {
+                mask = "00000000000000000000000000001000";
+            } else if(flag == 'F') {
+                mask = "00000000000000000000000000000100";
 
-			/*int bitFlag = 0;
+            } else if(flag=='A') {
+                mask = "00000000000000000000000000000010";
+            }else if(flag=='D'){
+                mask = "00000000000000000000000000000001";
+            }else if(flag=='Q'){
+                mask = "00000000000000000000000000001010";
+            }
+            else{
+                int q=0;
+                mask = "00000000000000000000000000000000";
+            }
+            int h=0;
+            int value = new BigInteger(mask, 2).intValue();
+            length = value | shiftedLength;
 
-			if(flag=='S') {
-				bitFlag = 4;
-			} else if(flag == 'F') {
-				bitFlag = 2;
-			} else if(flag=='A') {
-				bitFlag = 1;
-			}
-
-
-			// shifting the length to accomodate for SFA
-			length = length << 3;
-			length = length + bitFlag;*/
-
+            print("LENGTH FIELD:   " + Integer.toBinaryString(length));
             //  convert to byte array
+            //int i =0;
+            this.checksum = computeChecksum();
+            byte[] checksumBB = ByteBuffer.allocate(4).putInt(this.checksum).array();
             byte[] dataLength = ByteBuffer.allocate(4).putInt(length).array();
-            byte[] type = ByteBuffer.allocate(2).putChar(this.flag).array();
+            // byte[] type = ByteBuffer.allocate(2).putChar(this.flag).array();
             byte[] data =null;
             int lengthDataSegment=0;
             if(this.dataSeg!=null) {
@@ -156,11 +281,12 @@ public class HostA{
                 lengthDataSegment = this.dataSeg.length;
             }
             // cumulative packet containing all data
-            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 4 + 2+lengthDataSegment);
+            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 4 + 4+ lengthDataSegment);
             packet.put(seqNumberBb);
             packet.put(ackNumBB);
             packet.put(dataLength);
-            packet.put(type);
+            packet.put(checksumBB);
+            //packet.put(type);
             if (this.dataSeg != null) {
                 packet.put(data);
             }// handling data
@@ -168,7 +294,7 @@ public class HostA{
         }
 
         public boolean isSynack() {
-            if (this.flag == 'Q') {
+            if (this.flag == 'Q' && this.checksum==computeChecksum()) {
                 return true;
             }
             return false;
@@ -196,71 +322,71 @@ public class HostA{
 
     }
 
-	//send thread class
+    //send thread class
 
-	public class senderThread extends Thread{
+    public class senderThread extends Thread{
 
-		//fields fir sender Thread
-		private DatagramSocket out;
-		private int dest_port;
-		private InetAddress dest_addr;
-		private int recv_port;
+        //fields fir sender Thread
+        private DatagramSocket out;
+        private int dest_port;
+        private InetAddress dest_addr;
+        private int recv_port;
 
-		//construct for sender Thread
-		public senderThread(DatagramSocket socket_out, int dest_port, int recv_port) {
-			this.out = socket_out;
-			this.dest_port = dest_port;
-			this.recv_port = recv_port;
-		}
+        //construct for sender Thread
+        public senderThread(DatagramSocket socket_out, int dest_port, int recv_port) {
+            this.out = socket_out;
+            this.dest_port = dest_port;
+            this.recv_port = recv_port;
+        }
 
-		//generate packet function used as helper function
-
-
-		// main run method from Thread class
-		//override
+        //generate packet function used as helper function
 
 
-		public void run() {
-			try {
-				dest_addr = InetAddress.getByName("127.0.0.1");
-				boolean isTransmitted_handshake = false; // ensures 16 retransmissions, else reports error
-				int numRetransmissions = 0;
-				FileInputStream fileInStream = new FileInputStream(new File(path));
+        // main run method from Thread class
+        //override
 
-				while (!isTransmitted_handshake && numRetransmissions < 16) {
-					try {
 
-						// send the first syn packet
-						//first it should send a syn packet to the receiver and wait
-						//Thread.sleep()
-						// if the catch block gets the apt interrupt and this thread wakes up
-						// then send an Ack to the Syn + ACK received in the ReceiveAckThread
-						// once this process ends set the flag for sending data packets to the receiver
-						//this might cause null pointer error
-						Packet pkt_instance = new Packet(0, null, 'S', 0);
-						ByteBuffer syn_pkt = pkt_instance.createPacket();
-						pkt_instance.packetString();
-						out.send(new DatagramPacket(syn_pkt.array(), syn_pkt.array().length,
-								dest_addr, dest_port));
-						System.out.println("sent the first syn Packet; SYN PACKET #" + pkt_instance.seqNumber);
+        public void run() {
+            try {
+                dest_addr = InetAddress.getByName("127.0.0.1");
+                boolean isTransmitted_handshake = false; // ensures 16 retransmissions, else reports error
+                int numRetransmissions = 0;
+                FileInputStream fileInStream = new FileInputStream(new File(path));
 
-						// THREE-WAY HANDSHAKE
-						try {
-							sleep(120);
-							numRetransmissions++;
+                while (!isTransmitted_handshake && numRetransmissions < 16) {
+                    try {
 
-							// if the thread is interruputed, this means that
-							// we have received an SYN+ACK from the receiver. Hence.
-							// we can continue with normal execution i.e send an ACK
-							// and start transmitting data.
+                        // send the first syn packet
+                        //first it should send a syn packet to the receiver and wait
+                        //Thread.sleep()
+                        // if the catch block gets the apt interrupt and this thread wakes up
+                        // then send an Ack to the Syn + ACK received in the ReceiveAckThread
+                        // once this process ends set the flag for sending data packets to the receiver
+                        //this might cause null pointer error
+                        Packet pkt_instance = new Packet(0, null, 'S', 0);
+                        ByteBuffer syn_pkt = pkt_instance.createPacket();
+                        pkt_instance.packetString();
+                        out.send(new DatagramPacket(syn_pkt.array(), syn_pkt.array().length,
+                                dest_addr, dest_port));
+                        System.out.println("sent the first syn Packet; SYN PACKET #" + pkt_instance.seqNumber);
 
-						} catch (InterruptedException ex) {
+                        // THREE-WAY HANDSHAKE
+                        try {
+                            sleep(120);
+                            numRetransmissions++;
+
+                            // if the thread is interruputed, this means that
+                            // we have received an SYN+ACK from the receiver. Hence.
+                            // we can continue with normal execution i.e send an ACK
+                            // and start transmitting data.
+
+                        } catch (InterruptedException ex) {
 
                             System.out.println("IS INTERRUPTED");
 
-							//now that we received the SYN + ACK from the receiver
-							//send an ACK to the Receiver with ACK number = Receive SYN + 1
-							//Here this will be 1 as the Receive SYN =0
+                            //now that we received the SYN + ACK from the receiver
+                            //send an ACK to the Receiver with ACK number = Receive SYN + 1
+                            //Here this will be 1 as the Receive SYN =0
                             boolean ackHandShake = false;
                             while (!ackHandShake) {
 
@@ -297,7 +423,7 @@ public class HostA{
                                             if (base == nextSeqNum) {
                                                 setTimer(true);
                                             }
-                                            byte[] dataRead = new byte[PACKETSIZE-14];
+                                            byte[] dataRead = new byte[PACKETSIZE-16];
                                             Packet newDataPktInstance = null;
                                             /*
                                              * NOTE:	that I have changed the packetlist to contain elements of Packet type
@@ -316,7 +442,7 @@ public class HostA{
                                                 }
                                                 //CAUTION flag is 'n'
                                                 else {
-                                                    newDataPktInstance = new Packet(nextSeqNum, dataRead, 'n', 0);
+                                                    newDataPktInstance = new Packet(nextSeqNum, dataRead, 'D', 0);
                                                 }// add the new packet to be sent into the unacked packets buffer
                                                 packetsList.add(newDataPktInstance);
                                                 // this might cause null pointer
@@ -343,21 +469,21 @@ public class HostA{
                                     System.out.println("the final ack for the handshake has been sent");
                                 }
                             }
-						}
+                        }
 
 
-					} catch (Exception exc) {
-						exc.printStackTrace();
-					}
-				}
+                    } catch (Exception exc) {
+                        exc.printStackTrace();
+                    }
+                }
 
-			} catch (Exception exc) {
-				exc.printStackTrace();
-			}
+            } catch (Exception exc) {
+                exc.printStackTrace();
+            }
 
-		}
+        }
 
-	}
+    }
 
 
 
@@ -370,77 +496,63 @@ public class HostA{
 
 
 
-	//receive thread class
-	public class receiveAckThread extends Thread{
+    //receive thread class
+    public class receiveAckThread extends Thread{
 
-		//fields
-		private DatagramSocket in;
+        //fields
+        private DatagramSocket in;
         senderThread ThreadSender;
-		//constructor
-		public receiveAckThread(DatagramSocket in, senderThread ThreadSender ) {
-			this.in = in;
+        //constructor
+        public receiveAckThread(DatagramSocket in, senderThread ThreadSender ) {
+            this.in = in;
             this.ThreadSender = ThreadSender;
 
-		}
+        }
 
 
-		//generate packet function used as helper function
-		// see if you can make use of the existing packet class
-		///actually we cannot and we need to unwrap the byte array we receive from the receiver
-		public int ackNumExtract(byte[] receivedPacket) {
+        //generate packet function used as helper function
+        // see if you can make use of the existing packet class
+        ///actually we cannot and we need to unwrap the byte array we receive from the receiver
+        public int ackNumExtract(byte[] receivedPacket) {
             byte[] ackBytes = copyOfRange(receivedPacket, 4, 8);
-			return ByteBuffer.wrap(ackBytes).getInt(); // returns -1 if the checksum computation for the received ack fails
-			          // return -2 if the ack indicated teardown
-		}
+            return ByteBuffer.wrap(ackBytes).getInt(); // returns -1 if the checksum computation for the received ack fails
+            // return -2 if the ack indicated teardown
+        }
 
-       /* public boolean isSYNACK(byte[] data) {
-            byte[] lengthField = copyOfRange(data, 8, 12);
-            int length = ByteBuffer.wrap(lengthField).getInt();
-           *//* int shiftedLength = length << 3;
-            if ((shiftedLength + 5)==length) {
-                return true;
-            }*//*
-            byte[] type = copyOfRange(data, 12, 14);
+        //run method override
+        public void run() {
+            try {
 
-            if (ByteBuffer.wrap(type).getChar() == 'Q') {
-                return true;
-            }
-		    return false;
-        }*/
-		//run method override
-		public void run() {
-			try {
+                byte[] receivedAckData = new byte[ACKSIZE];
+                DatagramPacket receivedPacket = new DatagramPacket(receivedAckData, receivedAckData.length);
 
-				byte[] receivedAckData = new byte[ACKSIZE];
-				DatagramPacket receivedPacket = new DatagramPacket(receivedAckData, receivedAckData.length);
+                try {
 
-				try {
-
-					while (!bufferEndLoopExit) {
-						in.receive(receivedPacket);
+                    while (!bufferEndLoopExit) {
+                        in.receive(receivedPacket);
                         Packet receivedAck = new Packet();
                         receivedAck.generatePacketFromDatagramPacket(receivedAckData);
                         //receivedAck.packetString();
 
-						int ackNumberFromPkt = ackNumExtract(receivedAckData);
+                        int ackNumberFromPkt = ackNumExtract(receivedAckData);
                         System.out.println("isSYNACK  " + receivedAck.isSynack());
-						if (receivedAck.isSynack()) {
+                        if (receivedAck.isSynack()) {
                             //wake the sleeping thread as the required packet has arrived
                             this.ThreadSender.interrupt();
 
                         }
-						/*
-						*
-						* 1: check if dup ack
-						* 1-2: if dup ack THEN increment dup ack counter;
-						* 2: if dup counter reached retransmit the packet : that retransmit condition nextseqnum = base;
-						* 3: check if the ack is normal [THIS INCLUDES should take check for teardown signal into consideration]
-						* 3-1: if ack is normal equate the ack = base;
-						* 3-2:
-						*
-						*
-						* */
-						else {
+                        /*
+                         *
+                         * 1: check if dup ack
+                         * 1-2: if dup ack THEN increment dup ack counter;
+                         * 2: if dup counter reached retransmit the packet : that retransmit condition nextseqnum = base;
+                         * 3: check if the ack is normal [THIS INCLUDES should take check for teardown signal into consideration]
+                         * 3-1: if ack is normal equate the ack = base;
+                         * 3-2:
+                         *
+                         *
+                         * */
+                        else {
                             if (ackNumberFromPkt != -1) {
                                 //dup ack detected
                                 if (base == ackNumberFromPkt+1) {
@@ -466,57 +578,57 @@ public class HostA{
 
                             }
                         }
-					}
+                    }
 
-				} catch (Exception ex) {
-					ex.printStackTrace();
-				}
-			} catch (Exception ex) {
-				ex.printStackTrace();
-			}
-		}
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
 
 
-	}
+    }
 
-	//constructor for the main class
-	public HostA(int sk1_dst_port, int sk4_dst_port, String path, String fileName) {
-		base = 0;
-		nextSeqNum = 0;
-		this.path = path;
-		this.fileName = fileName;
-		packetsList = new Vector<Packet>(win_size);
-		bufferEndLoopExit = false;
-		DatagramSocket sk1, sk4;
-		s = new Semaphore(1);
-		System.out.println("Sender: sk1_dst_port=" + sk1_dst_port + ", sk4_dst_port=" + sk4_dst_port + ", inputFilePath=" + path + ", outputFileName=" + fileName);
+    //constructor for the main class
+    public HostA(int sk1_dst_port, int sk4_dst_port, String path, String fileName) {
+        base = 0;
+        nextSeqNum = 0;
+        this.path = path;
+        this.fileName = fileName;
+        packetsList = new Vector<Packet>(win_size);
+        bufferEndLoopExit = false;
+        DatagramSocket sk1, sk4;
+        s = new Semaphore(1);
+        System.out.println("Sender: sk1_dst_port=" + sk1_dst_port + ", sk4_dst_port=" + sk4_dst_port + ", inputFilePath=" + path + ", outputFileName=" + fileName);
 
-		try {
-			// create sockets
-			sk1 = new DatagramSocket();				// outgoing channel
-			sk4 = new DatagramSocket(sk4_dst_port);	// incoming channel
+        try {
+            // create sockets
+            sk1 = new DatagramSocket();				// outgoing channel
+            sk4 = new DatagramSocket(sk4_dst_port);	// incoming channel
 
-			// create threads to process data
+            // create threads to process data
 
-			senderThread th_out = new senderThread(sk1, sk1_dst_port, sk4_dst_port);
+            senderThread th_out = new senderThread(sk1, sk1_dst_port, sk4_dst_port);
             receiveAckThread th_in = new receiveAckThread(sk4, th_out);
-			th_in.start();
-			th_out.start();
+            th_in.start();
+            th_out.start();
 
-		} catch (Exception e) {
-			e.printStackTrace();
-			System.exit(-1);
-		}
-	}
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(-1);
+        }
+    }
 
-	//main method for the main class
-	public static void main(String args[]) {
-		if (args.length != 4) {
-			System.err.println("Usage: java Sender sk1_dst_port, sk4_dst_port, inputFilePath, outputFileName");
-			System.exit(-1);
-		}
-		else new HostA(Integer.parseInt(args[0]), Integer.parseInt(args[1]), args[2], args[3]);
-	}
+    //main method for the main class
+    public static void main(String args[]) {
+        if (args.length != 4) {
+            System.err.println("Usage: java Sender sk1_dst_port, sk4_dst_port, inputFilePath, outputFileName");
+            System.exit(-1);
+        }
+        else new HostA(Integer.parseInt(args[0]), Integer.parseInt(args[1]), args[2], args[3]);
+    }
 
 
 }
