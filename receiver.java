@@ -206,7 +206,9 @@ public class receiver{
 
         public boolean isValidSyn() {
 
-
+            System.out.println("checksum check " + (this.checksum == computeChecksum()));
+            print("this.checksum: " + this.checksum);
+            print("computeChecksum: " + computeChecksum());
             if (this.flag == 'S' && this.checksum == computeChecksum()) {
                 return true;
             }
@@ -445,6 +447,8 @@ public class receiver{
                 * keep a while loop which exits the moment a valid syn is provided from the sender
                 * the first packet that the receiver has to send should be a syn packet.
                 * */
+
+
                 byte[] data = new byte[PACKETSIZE];
 
                 DatagramPacket inPkt = new DatagramPacket(data, data.length);
@@ -455,10 +459,10 @@ public class receiver{
 
 
                 /*
-                *
-                *   make potential modifications to the String Path var to accommodate the incoming file
-                *
-                * */
+                 *
+                 *   make potential modifications to the String Path var to accommodate the incoming file
+                 *
+                 * */
                 File filePath = new File(pathOfFile);
                 if (!filePath.exists()) {
                     filePath.mkdir();
@@ -468,6 +472,7 @@ public class receiver{
                     file.createNewFile();
                 }
                 fileOutStream = new FileOutputStream(file);
+
 
                 boolean ThreeWayContinue = true;
                 boolean connectionSetupFlag = false;
@@ -481,12 +486,20 @@ public class receiver{
                     socket_1.receive(inPkt);
 
                     Packet ourPacketFormat = new Packet();
-
                     ourPacketFormat.generatePacketFromDatagramPacket(data);
+                    
+                   /* ourPacketFormat.generatePacketFromDatagramPacket(data);
+                    byte[] fileLength = copyOfRange(data, 24, 28);
+                    int FileLen = ByteBuffer.wrap(fileLength).getInt();
+                    byte[] fileName = copyOfRange(data, 28, 28 + FileLen);
+                    String fileName2 = new String(fileName);
+                    File file = new File(pathOfFile + fileName2);*/
+
+
 
                     ourPacketFormat.packetString();
 
-                    //System.out.println("is Valid SYN  = " + ourPacketFormat.isValidSyn());
+                    System.out.println("is Valid SYN  = " + ourPacketFormat.isValidSyn());
                     if (ourPacketFormat.isValidSyn()) {
 
                         ThreeWayContinue=false;
@@ -520,9 +533,7 @@ public class receiver{
 
                             Packet ackPacket = new Packet();
                             ackPacket.generatePacketFromDatagramPacket(data);
-                            /*print("rcv " + ackPacket.timeStamp + " " + ackPacket.flag + " " +
-                                    ackPacket.seqNumber + " " + "0" + " "
-                                    + ackPacket.ackNum);*/
+
                             ackPacket.packetString();
                             if (ackPacket.isValidAck()) {
                                 setTimer(false);

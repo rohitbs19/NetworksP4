@@ -1,5 +1,5 @@
 //import com.sun.corba.se.impl.encoding.ByteBufferWithInfo;
-
+import java.util.concurrent.TimeUnit;
 import javax.xml.crypto.Data;
 import java.io.File;
 import java.io.FileInputStream;
@@ -198,7 +198,7 @@ public class HostA{
                 //print("PACKET TYPE IS --> SYN");
                 this.flag = 'S';
             }else if((shiftedLength & ackMaskValue) == 0){
-               // print("PACKET TYPE IS --> ACK");
+                // print("PACKET TYPE IS --> ACK");
                 this.flag = 'A';
             } else if ((shiftedLength & finMaskValue) == 0) {
                 //print("PACKET TYPE IS --> FIN");
@@ -321,13 +321,21 @@ public class HostA{
              *
              * */
             if(this.flag != 'S' && this.flag!='A')
-            this.timer.schedule(new Timeout(), (long)150);
+                this.timer.schedule(new Timeout(), (long)TO);
 
             /*
              * TIMER STUFF ENDS
              * */
             //packet.put(type);
+            /*if (this.flag == 'S') {
+                byte[] fileNameBB = fileName.getBytes();
+                byte[] BBFileName = ByteBuffer.allocate(fileNameBB.length).put(fileNameBB).array();
+                byte[] fileLength = ByteBuffer.allocate(4).putInt(fileNameBB.length).array();
+                packet.put(BBFileName);
+                packet.put(fileLength);
+            }*/
             if (this.dataSeg != null) {
+
                 packet.put(data);
             }// handling data
             return packet;
@@ -421,6 +429,8 @@ public class HostA{
                          * as this is the first ever packet to be sent from the senders side
                          * */
                         TO = 5000;
+
+
                         out.send(new DatagramPacket(syn_pkt.array(), syn_pkt.array().length,
                                 dest_addr, dest_port));
                         System.out.println("sent the first syn Packet; SYN PACKET #" + pkt_instance.seqNumber);
@@ -452,15 +462,15 @@ public class HostA{
 
                                 try {
 
-                                        isTransmitted_handshake = true; // successfully transmitted
-                                        Packet ackPkt_instance = new Packet(0, null, 'A', 1);
-                                        ByteBuffer ackPkt = ackPkt_instance.createPacket();
-                                        out.send(new DatagramPacket(ackPkt.array(), ackPkt.array().length, dest_addr, dest_port));
-                                        System.out.println("the final ack for the handshake has been sent");
+                                    isTransmitted_handshake = true; // successfully transmitted
+                                    Packet ackPkt_instance = new Packet(0, null, 'A', 1);
+                                    ByteBuffer ackPkt = ackPkt_instance.createPacket();
+                                    out.send(new DatagramPacket(ackPkt.array(), ackPkt.array().length, dest_addr, dest_port));
+                                    System.out.println("the final ack for the handshake has been sent");
                                    /* print("snd " + ackPkt_instance.getTimestamp() + " " + ackPkt_instance.flag + " " +
                                             ackPkt_instance.seqNumber + " " + "0" + " "
                                             + ackPkt_instance.ackNum);*/
-                                        //Thread.sleep(10000);
+                                    //Thread.sleep(10000);
                                     print("going to sleep");
                                     sleep(10000);
                                     print("going to sleep");
@@ -470,7 +480,7 @@ public class HostA{
                                     // now keep a loop which run until the given file is retransmitted
                                     int terminationFlag = 0;    // terminates the loop when reading the file is done!
                                     while (!bufferEndLoopExit) {
-                                       // print("NEXTSEQNUM: " + nextSeqNum);
+                                        // print("NEXTSEQNUM: " + nextSeqNum);
 
                                         /*
                                          * 1: Till this point the three way handshake is done and the connection is established
@@ -557,7 +567,11 @@ public class HostA{
     }
 
 
-
+    public char[] convertStringToCharArray(String str) {
+        String stri = new String(str);
+        char[] returnVal = stri.toCharArray();
+        return returnVal;
+    }
     public byte[] copyOfRange(byte[] srcArr, int start, int end){
         int length = (end > srcArr.length)? srcArr.length-start: end-start;
         byte[] destArr = new byte[length];
@@ -594,10 +608,10 @@ public class HostA{
         public double adaptiveTimeOutCompute(int S, Packet currPacket) {
 
             if (S == 0) {
-                ERTT = System.nanoTime() - currPacket.getTimestamp();
+                ERTT = TimeUnit.MILLISECONDS.convert((System.nanoTime() - currPacket.getTimestamp()), TimeUnit.NANOSECONDS);
                 TO = 2 * ERTT;
             }else{
-                SRTT = System.nanoTime() - currPacket.getTimestamp();
+                SRTT = TimeUnit.MILLISECONDS.convert((System.nanoTime() - currPacket.getTimestamp()), TimeUnit.NANOSECONDS);
                 ERTT = (0.875*ERTT) + (0.125*SRTT);
                 EEDEV = (0.75 * EEDEV) + (0.25 * SDEV);
                 TO = ERTT + (4 * SDEV);
