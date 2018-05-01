@@ -38,11 +38,13 @@ public class HostA{
     int ACKSIZE = 24;
     int numRetransmitions =0;
     int numDataPacketSent =0;
+    int dupAckCounter =0;
+    int toberetrans = 0;
     /*
-    *
-    * GLOBALS FOR THE TIMEOUT COMPUTATION
-    *
-    * */
+     *
+     * GLOBALS FOR THE TIMEOUT COMPUTATION
+     *
+     * */
     double ERTT=0;
     double EEDEV=0;
     double TO=0;
@@ -193,19 +195,19 @@ public class HostA{
             int synackValue = new BigInteger(synackMask, 2).intValue();
 
             if ((shiftedLength & synMaskValue) == 0) {
-                print("PACKET TYPE IS --> SYN");
+                //print("PACKET TYPE IS --> SYN");
                 this.flag = 'S';
             }else if((shiftedLength & ackMaskValue) == 0){
-                print("PACKET TYPE IS --> ACK");
+               // print("PACKET TYPE IS --> ACK");
                 this.flag = 'A';
             } else if ((shiftedLength & finMaskValue) == 0) {
-                print("PACKET TYPE IS --> FIN");
+                //print("PACKET TYPE IS --> FIN");
                 this.flag = 'F';
             } else if ((shiftedLength & dMaskValue) == 0) {
-                print("PACKET TYPE IS --> DATA");
+                //print("PACKET TYPE IS --> DATA");
                 this.flag = 'D';
             } else if ((shiftedLength & synackValue) == 0) {
-                print("PACKET TYPE IS --> SYN + ACK");
+                //print("PACKET TYPE IS --> SYN + ACK");
                 this.flag = 'Q';
             }
 
@@ -290,7 +292,7 @@ public class HostA{
             int value = new BigInteger(mask, 2).intValue();
             length = value | shiftedLength;
 
-            print("LENGTH FIELD:   " + Integer.toBinaryString(length));
+            //print("LENGTH FIELD:   " + Integer.toBinaryString(length));
             //  convert to byte array
             //int i =0;
             this.checksum = computeChecksum();
@@ -318,8 +320,8 @@ public class HostA{
              * do the timer stuff
              *
              * */
-
-            this.timer.schedule(new Timeout(), (long)TO);
+            if(this.flag != 'S' && this.flag!='A')
+            this.timer.schedule(new Timeout(), (long)150);
 
             /*
              * TIMER STUFF ENDS
@@ -415,20 +417,20 @@ public class HostA{
                         ByteBuffer syn_pkt = pkt_instance.createPacket();
                         pkt_instance.packetString();
                         /*
-                        *
-                        * as this is the first ever packet to be sent from the senders side
-                        * */
+                         *
+                         * as this is the first ever packet to be sent from the senders side
+                         * */
                         TO = 5000;
                         out.send(new DatagramPacket(syn_pkt.array(), syn_pkt.array().length,
                                 dest_addr, dest_port));
                         System.out.println("sent the first syn Packet; SYN PACKET #" + pkt_instance.seqNumber);
-                        print("snd " + pkt_instance.getTimestamp() + " " + pkt_instance.flag + " " +
+                        /*print("snd " + pkt_instance.getTimestamp() + " " + pkt_instance.flag + " " +
                                 pkt_instance.seqNumber + " " + "0" + " "
-                                + pkt_instance.ackNum);
+                                + pkt_instance.ackNum);*/
 
                         // THREE-WAY HANDSHAKE
                         try {
-                            sleep(1000);
+                            sleep(5000);
                             numRetransmissions++;
 
                             // if the thread is interruputed, this means that
@@ -444,26 +446,32 @@ public class HostA{
                             //send an ACK to the Receiver with ACK number = Receive SYN + 1
                             //Here this will be 1 as the Receive SYN =0
                             boolean ackHandShake = false;
+
                             while (!ackHandShake) {
 
 
                                 try {
-                                    isTransmitted_handshake = true; // successfully transmitted
-                                    Packet ackPkt_instance = new Packet(0, null, 'A', 1);
-                                    ByteBuffer ackPkt = ackPkt_instance.createPacket();
-                                    out.send(new DatagramPacket(ackPkt.array(), ackPkt.array().length, dest_addr, dest_port));
-                                    System.out.println("the final ack for the handshake has been sent");
-                                    print("snd " + ackPkt_instance.getTimestamp() + " " + ackPkt_instance.flag + " " +
+
+                                        isTransmitted_handshake = true; // successfully transmitted
+                                        Packet ackPkt_instance = new Packet(0, null, 'A', 1);
+                                        ByteBuffer ackPkt = ackPkt_instance.createPacket();
+                                        out.send(new DatagramPacket(ackPkt.array(), ackPkt.array().length, dest_addr, dest_port));
+                                        System.out.println("the final ack for the handshake has been sent");
+                                   /* print("snd " + ackPkt_instance.getTimestamp() + " " + ackPkt_instance.flag + " " +
                                             ackPkt_instance.seqNumber + " " + "0" + " "
-                                            + ackPkt_instance.ackNum);
-                                    //Thread.sleep(10000);
-                                    sleep(120);
+                                            + ackPkt_instance.ackNum);*/
+                                        //Thread.sleep(10000);
+                                    print("going to sleep");
+                                    sleep(10000);
+                                    print("going to sleep");
                                     ackHandShake = true;
                                     //Three way handshake done!
-
+                                    bufferEndLoopExit = false;
                                     // now keep a loop which run until the given file is retransmitted
                                     int terminationFlag = 0;    // terminates the loop when reading the file is done!
                                     while (!bufferEndLoopExit) {
+                                       // print("NEXTSEQNUM: " + nextSeqNum);
+
                                         /*
                                          * 1: Till this point the three way handshake is done and the connection is established
                                          * 2: Now, There have to be two conditions:
@@ -486,17 +494,22 @@ public class HostA{
                                              * NOTE:	that I have changed the packetlist to contain elements of Packet type
                                              * */
                                             if (nextSeqNum < packetsList.size()) {
-                                                newDataPktInstance = packetsList.get(nextSeqNum);
-						newDataPktInstance.timer = new Timer();
-                                       		print("RETRANSMITTING PACKET WITH SYN #" + newDataPktInstance.seqNumber);     
-						}
+                                                if(nextSeqNum>0) {
+                                                    newDataPktInstance = packetsList.get(nextSeqNum - 1);
+                                                }else{
+                                                    newDataPktInstance = packetsList.get(nextSeqNum );
+                                                }
+                                                newDataPktInstance.timer = new Timer();
+                                                print("RETRANSMITTING PACKET WITH SYN #" + newDataPktInstance.seqNumber);
+                                            }
                                             // if normal case and not retransmission
                                             else {
                                                 // read the slice of the file (set as 1024 for convenience now but has to be
                                                 // changed to MTU and be taken an command line arg)
                                                 terminationFlag = fileInStream.read(dataRead);
+                                                print("TERMINATIONS FLAG: " + terminationFlag + " AT NEXTSEQNUM " + nextSeqNum);
                                                 if (terminationFlag == -1) {
-                                                    bufferEndLoopExit = true;
+
                                                     newDataPktInstance = new Packet(nextSeqNum, new byte[0], 'F', -2);
                                                 }
                                                 //CAUTION flag is 'n'
@@ -506,16 +519,13 @@ public class HostA{
                                                 packetsList.add(newDataPktInstance);
                                                 // this might cause null pointer
                                             }
-						
+
                                             ByteBuffer normalPkt = newDataPktInstance.createPacket();
                                             newDataPktInstance.packetString();
-					out.send(new DatagramPacket(normalPkt.array(), normalPkt.array().length, dest_addr, dest_port));
-                                            
-					    ++numDataPacketSent;
-                                            //System.out.println("PACKET SENT SYN #" + newDataPktInstance.seqNumber);
-                                        //    print("snd " + newDataPktInstance.getTimestamp() + " " + newDataPktInstance.flag + " " +
-                                          //          newDataPktInstance.seqNumber + " " + newDataPktInstance.dataSeg.length + " "
-                                            //        + newDataPktInstance.ackNum);
+                                            out.send(new DatagramPacket(normalPkt.array(), normalPkt.array().length, dest_addr, dest_port));
+
+                                            ++numDataPacketSent;
+
                                             if (!bufferEndLoopExit) {
                                                 nextSeqNum++;
                                             }
@@ -526,11 +536,8 @@ public class HostA{
                                     }
 
                                 } catch (InterruptedException ip) {
-                                    ip.printStackTrace();
-                                    Packet ackPkt_instance = new Packet(0, null, 'A', 1);
-                                    ByteBuffer ackPkt = ackPkt_instance.createPacket();
-                                    out.send(new DatagramPacket(ackPkt.array(), ackPkt.array().length, dest_addr, dest_port));
-                                    System.out.println("the final ack for the handshake has been sent");
+                                    bufferEndLoopExit = true;
+                                    print("interrupt OCCURED INDICATING THE ARRIVAL OF RESENT SYN + ACK PACKET");
                                 }
                             }
                         }
@@ -611,13 +618,12 @@ public class HostA{
                         in.receive(receivedPacket);
                         Packet receivedAck = new Packet();
                         receivedAck.generatePacketFromDatagramPacket(receivedAckData);
-                        print("rcv " + receivedAck.getTimestamp() + " " + receivedAck.flag + " " +
-                                receivedAck.seqNumber + " " + "0" + " "
-                                + receivedAck.ackNum);
-                        //receivedAck.packetString();
+                        print("*****************ACK RECEIVED*********************");
+                        receivedAck.packetString();
+
 
                         int ackNumberFromPkt = ackNumExtract(receivedAckData);
-                        System.out.println("isSYNACK  " + receivedAck.isSynack());
+
                         if (receivedAck.isSynack()) {
                             //wake the sleeping thread as the required packet has arrived
                             this.ThreadSender.interrupt();
@@ -638,10 +644,19 @@ public class HostA{
                             if (ackNumberFromPkt != -1) {
                                 //dup ack detected
                                 if (base == ackNumberFromPkt+1) {
+
+                                    print("DETECTED DUP ACK AT #" + ackNumberFromPkt);
+                                    print("PACKET WITH ACKNUMBER MENTIONE ABOVE IS LOST");
                                     //then retransmit condition that is
                                     s.acquire();
                                     packetsList.get(ackNumberFromPkt).getTimer().cancel();
-                                    nextSeqNum = base;
+                                    ++dupAckCounter;
+
+                                    if (dupAckCounter >= 4) {
+                                        dupAckCounter =0;
+                                        toberetrans = ackNumberFromPkt;
+                                        nextSeqNum = base;
+                                    }
                                     ++numRetransmitions;
                                     s.release();
                                 } else if (ackNumberFromPkt == -2) {
@@ -650,11 +665,7 @@ public class HostA{
                                 } else {
                                     base = ackNumberFromPkt+1;
                                     s.acquire();
-                                    /*if (base == nextSeqNum) {
-                                        setTimer(false);
-                                    }else{
-                                        setTimer(true);
-                                    }*/
+
                                     adaptiveTimeOutCompute(receivedAck.ackNum, receivedAck);
                                     print("PACKET WITH ACK #" + ackNumberFromPkt + " WAS RECEIVED IN THE SENDER");
                                     if (packetsList.get(ackNumberFromPkt) != null) {
@@ -666,6 +677,7 @@ public class HostA{
 
                             }
                         }
+                        print("*****************ACK RECEIVED*********************");
                     }
 
                 } catch (Exception ex) {
@@ -720,3 +732,4 @@ public class HostA{
 
 
 }
+
