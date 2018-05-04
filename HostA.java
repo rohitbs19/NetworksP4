@@ -21,7 +21,6 @@ public class HostA{
 
 
 
-    //fields for the main class
     static int data_size = 988;			// (checksum:8, seqNum:4, data<=988) Bytes : 1000 Bytes total
     static int win_size = 10;
     static int timeoutVal = 300;		// 120ms until timeout
