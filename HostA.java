@@ -21,8 +21,8 @@ public class HostA{
 
 
 
-    static int data_size = 988;			// (checksum:8, seqNum:4, data<=988) Bytes : 1000 Bytes total
-    static int win_size = 10;
+    //static int data_size = 988;			// (checksum:8, seqNum:4, data<=988) Bytes : 1000 Bytes total
+    static int win_size; //= 10;
     static int timeoutVal = 300;		// 120ms until timeout
 
     int base;					// base sequence number of window
@@ -33,7 +33,7 @@ public class HostA{
     Timer timer;				// for timeouts
     Semaphore s;				// guard CS for base, nextSeqNum
     boolean bufferEndLoopExit;// if receiver has completely received the file [INITIALIZE THIS WITH FALSE IN THE START]
-    int PACKETSIZE = 1024;
+    int PACKETSIZE; // init to with mtu in constructor
     int ACKSIZE = 24;
     int numRetransmitions =0;
     int numDataPacketSent =0;
@@ -50,7 +50,10 @@ public class HostA{
     double SRTT=0;
     double SDEV =0;
     //another class for packet
-
+    /*
+    *
+    * defunct for the sender
+    * */
     public void print(String s) {
         System.out.println(s);
     }
@@ -68,8 +71,10 @@ public class HostA{
             try{
                 s.acquire();
                 System.out.println("Sender: Timeout!");
-                nextSeqNum = base;	// resets nextSeqNum
-                ++numRetransmitions;
+                print("next seq num prior val: " + nextSeqNum);
+                print("base val rn: " + base);
+		nextSeqNum = base;
+		++numRetransmitions;
                 s.release();
             } catch(InterruptedException e){
                 e.printStackTrace();
@@ -166,14 +171,7 @@ public class HostA{
             byte[] lengthField = copyOfRange(inData, 16, 20);
             int length = ByteBuffer.wrap(lengthField).getInt();
 
-           /* int shiftedLength = length << 3;
-            if ((shiftedLength + 4)==length) {
-                this.flag = 'S';
-            } else if ((shiftedLength + 2) == length) {
-                this.flag='F';
-            } else if ((shiftedLength + 1) == length) {
-                this.flag = 'A';
-            }*/
+
 
             String extractFlagBitsMask = "00000000000000000000000000001111";
             int extractMaskValue = new BigInteger(extractFlagBitsMask, 2).intValue();
@@ -228,9 +226,9 @@ public class HostA{
 
             String temp = null;
 
-            if (seqNumInBinary.length() != 16) {
+            if (seqNumInBinary.length() != 32) {
                 int h=0;
-                int offset = 16 - seqNumInBinary.length();
+                int offset = 32 - seqNumInBinary.length();
                 StringBuilder stringB = new StringBuilder();
 
                 for(int i =0; i< offset; i++) {
@@ -248,7 +246,7 @@ public class HostA{
             addition = invert(addition);
 
             //this.checksum = Short.parseShort(addition);
-            return Integer.parseInt(addition);
+            return Integer.parseInt(addition,2);
         }
         public ByteBuffer createPacket() {
             // sequence number
@@ -305,34 +303,49 @@ public class HostA{
                 lengthDataSegment = this.dataSeg.length;
             }
             byte[] timeStampBB = ByteBuffer.allocate(8).putLong(this.timestamp).array();
-
+            ByteBuffer packet = null;
             // cumulative packet containing all data
-            ByteBuffer packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + lengthDataSegment);
+            byte[] fileNameBB = null;
+            byte[] BBFileName = null;
+            byte[] fileLength = null;
+            if (this.flag == 'S') {
+                 fileNameBB = fileName.getBytes();
+                 BBFileName = ByteBuffer.allocate(fileNameBB.length).put(fileNameBB).array();
+                 fileLength = ByteBuffer.allocate(4).putInt(fileNameBB.length).array();
+
+            }
+            if(this.flag=='S'){
+                packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + 4 + fileNameBB.length);
+            }else {
+                 packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + lengthDataSegment);
+            }
             packet.put(seqNumberBb);
             packet.put(ackNumBB);
             packet.put(timeStampBB);
             packet.put(dataLength);
             packet.put(checksumBB);
-
+            if(this.flag=='S') {
+                packet.put(fileLength);
+                packet.put(BBFileName);
+            }
             /*
              *
              * do the timer stuff
              *
              * */
-            if(this.flag != 'S' && this.flag!='A')
-                this.timer.schedule(new Timeout(), (long)TO);
-
+            if(this.flag != 'S' && this.flag!='A' && this.seqNumber != 0) {
+                this.timer.schedule(new Timeout(), (long) TO);
+               // print("TIMER INSTALLED TO SYN # " + this.seqNumber + " TIMER VAL: " + 1000);
+            }
+            else {
+                this.timer.schedule(new Timeout(), (long) 5000);
+                //print("TIMER INSTALLED TO SYN # " + this.seqNumber + " TIMER VAL: 5000");
+            }
             /*
              * TIMER STUFF ENDS
              * */
             //packet.put(type);
-            /*if (this.flag == 'S') {
-                byte[] fileNameBB = fileName.getBytes();
-                byte[] BBFileName = ByteBuffer.allocate(fileNameBB.length).put(fileNameBB).array();
-                byte[] fileLength = ByteBuffer.allocate(4).putInt(fileNameBB.length).array();
-                packet.put(BBFileName);
-                packet.put(fileLength);
-            }*/
+
             if (this.dataSeg != null) {
 
                 packet.put(data);
@@ -388,12 +401,13 @@ public class HostA{
         private int dest_port;
         private InetAddress dest_addr;
         private int recv_port;
-
+        private String IP;
         //construct for sender Thread
-        public senderThread(DatagramSocket socket_out, int dest_port, int recv_port) {
+        public senderThread(DatagramSocket socket_out, int dest_port, int recv_port, String remoteIP) {
             this.out = socket_out;
             this.dest_port = dest_port;
             this.recv_port = recv_port;
+            this.IP = remoteIP;
         }
 
         //generate packet function used as helper function
@@ -405,10 +419,13 @@ public class HostA{
 
         public void run() {
             try {
-                dest_addr = InetAddress.getByName("10.0.2.102");
+                print("IP value --> " + IP);
+                print("dest port--> " + dest_port);
+
+                dest_addr = InetAddress.getByName(IP);
                 boolean isTransmitted_handshake = false; // ensures 16 retransmissions, else reports error
                 int numRetransmissions = 0;
-                FileInputStream fileInStream = new FileInputStream(new File(path));
+                FileInputStream fileInStream = new FileInputStream(new File(fileName));
 
                 while (!isTransmitted_handshake && numRetransmissions < 16) {
                     try {
@@ -493,7 +510,7 @@ public class HostA{
                                          *
                                          * */
                                         // empty data seg that is to be initialized with required data to be sent
-                                        if(nextSeqNum < base + win_size) {
+                                        if(nextSeqNum < base + (win_size)) {
                                             s.acquire();
 
 
@@ -502,13 +519,16 @@ public class HostA{
                                             /*
                                              * NOTE:	that I have changed the packetlist to contain elements of Packet type
                                              * */
-                                            if (nextSeqNum < packetsList.size()) {
-                                                if(nextSeqNum>0) {
-                                                    newDataPktInstance = packetsList.get(nextSeqNum - 1);
+                                            if ((nextSeqNum) < packetsList.size()) {
+                                  		print("**************RETRANSMITTING SYN #"+ (nextSeqNum) + " ********************"); 
+				               if(nextSeqNum>0) {
+                                                    newDataPktInstance = packetsList.get(nextSeqNum-1);//-PACKETSIZE);
                                                 }else{
                                                     newDataPktInstance = packetsList.get(nextSeqNum );
                                                 }
                                                 newDataPktInstance.timer = new Timer();
+
+
                                                 print("RETRANSMITTING PACKET WITH SYN #" + newDataPktInstance.seqNumber);
                                             }
                                             // if normal case and not retransmission
@@ -520,7 +540,8 @@ public class HostA{
                                                 if (terminationFlag == -1) {
 
                                                     newDataPktInstance = new Packet(nextSeqNum, new byte[0], 'F', -2);
-                                                }
+                                                
+						}
                                                 //CAUTION flag is 'n'
                                                 else {
                                                     newDataPktInstance = new Packet(nextSeqNum, dataRead, 'D', 0);
@@ -536,15 +557,20 @@ public class HostA{
                                             ++numDataPacketSent;
 
                                             if (!bufferEndLoopExit) {
-                                                nextSeqNum++;
+                                                nextSeqNum = nextSeqNum+1;
                                             }
                                             s.release();
 
                                         }
+                                        print("WAITING FOR TIMEOUT");
                                         Thread.sleep(5);
                                     }
 
                                 } catch (InterruptedException ip) {
+                                    /*
+                                    *
+                                    * MAJOR QUERY WARNING: 1001001
+                                    * */
                                     bufferEndLoopExit = true;
                                     print("interrupt OCCURED INDICATING THE ARRIVAL OF RESENT SYN + ACK PACKET");
                                 }
@@ -607,13 +633,26 @@ public class HostA{
         public double adaptiveTimeOutCompute(int S, Packet currPacket) {
 
             if (S == 0) {
-                ERTT = TimeUnit.MILLISECONDS.convert((System.nanoTime() - currPacket.getTimestamp()), TimeUnit.NANOSECONDS);
+
+                ERTT = 2500;
+                EEDEV = 0;
                 TO = 2 * ERTT;
+                //print("IN THE FORMULA COMPUTATION PART: " + TO);
+
             }else{
-                SRTT = TimeUnit.MILLISECONDS.convert((System.nanoTime() - currPacket.getTimestamp()), TimeUnit.NANOSECONDS);
+               // print("nano time: --> : " + System.nanoTime() + " timestamp: --> " + currPacket.timestamp);
+
+                SRTT = Math.abs(System.nanoTime() - currPacket.getTimestamp()) + 200000;
+               // print("SRTT BEFORE CONVERSION " + SRTT/1000000);
+
+                SRTT = SRTT / 1000000;//TimeUnit.MILLISECONDS.convert((long)SRTT, TimeUnit.NANOSECONDS);
+                //print("ERTT --> " + ERTT + " SRTT--> " + SRTT);
+                SDEV = Math.abs(SRTT - ERTT);
                 ERTT = (0.875*ERTT) + (0.125*SRTT);
                 EEDEV = (0.75 * EEDEV) + (0.25 * SDEV);
                 TO = ERTT + (4 * SDEV);
+                //print("DECIDED/COMPUTED TO VAL: " + TO);
+
             }
 
             return TO;
@@ -667,6 +706,7 @@ public class HostA{
 
                                     if (dupAckCounter >= 4) {
                                         dupAckCounter =0;
+					
                                         toberetrans = ackNumberFromPkt;
                                         nextSeqNum = base;
                                     }
@@ -675,8 +715,11 @@ public class HostA{
                                 } else if (ackNumberFromPkt == -2) {
                                     //probably have to do complete fin shake
                                     bufferEndLoopExit = true;
+                                    print("connection closed");
+
+                                    System.exit(0);
                                 } else {
-                                    base = ackNumberFromPkt+1;
+                                    base = ackNumberFromPkt +1;
                                     s.acquire();
 
                                     adaptiveTimeOutCompute(receivedAck.ackNum, receivedAck);
@@ -705,25 +748,37 @@ public class HostA{
     }
 
     //constructor for the main class
-    public HostA(int sk1_dst_port, int sk4_dst_port, String path, String fileName) {
+    public HostA(int sk4_dst_port, String remoteIP, int sk1_dst_port, String fileName /* only path has to be taken*/
+    , int mtu, int cws
+    ) {
         base = 0;
         nextSeqNum = 0;
-        this.path = path;
+
+        /*
+        *
+        * init all the global vars with the passed on args
+        *
+        * */
+        PACKETSIZE = mtu;   //given by the args mentioned through TCPEnd
+        win_size = cws; //given by the args mentioned through TCPEnd
+
+
         this.fileName = fileName;
         packetsList = new Vector<Packet>(win_size);
         bufferEndLoopExit = false;
         DatagramSocket sk1, sk4;
         s = new Semaphore(1);
-        System.out.println("Sender: sk1_dst_port=" + sk1_dst_port + ", sk4_dst_port=" + sk4_dst_port + ", inputFilePath=" + path + ", outputFileName=" + fileName);
+        System.out.println("Sender: sk1_dst_port=" + sk1_dst_port +
+                ", sk4_dst_port=" + sk4_dst_port  + ", outputFileName=" + fileName);
 
         try {
             // create sockets
-            sk1 = new DatagramSocket();				// outgoing channel
+           // sk1 = new DatagramSocket();				// outgoing channel
             sk4 = new DatagramSocket(sk4_dst_port);	// incoming channel
 
             // create threads to process data
 
-            senderThread th_out = new senderThread(sk1, sk1_dst_port, sk4_dst_port);
+            senderThread th_out = new senderThread(sk4, sk1_dst_port, sk4_dst_port, remoteIP);
             receiveAckThread th_in = new receiveAckThread(sk4, th_out);
             th_in.start();
             th_out.start();
@@ -735,13 +790,13 @@ public class HostA{
     }
 
     //main method for the main class
-    public static void main(String args[]) {
+   /* public static void main(String args[]) {
         if (args.length != 4) {
             System.err.println("Usage: java Sender sk1_dst_port, sk4_dst_port, inputFilePath, outputFileName");
             System.exit(-1);
         }
         else new HostA(Integer.parseInt(args[0]), Integer.parseInt(args[1]), args[2], args[3]);
-    }
+    }*/
 
 
 }
