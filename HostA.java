@@ -29,7 +29,7 @@ public class HostA{
     int nextSeqNum;				// next sequence number in window
     String path;				// path of file to be sent
     String fileName;			// filename to be saved by receiver
-    Vector<Packet> packetsList;	// list of generated packets
+    public static ConcurrentHashMap<Integer, Packet> packetsList;    // list of generated packets
     Timer timer;				// for timeouts
     Semaphore s;				// guard CS for base, nextSeqNum
     boolean bufferEndLoopExit;// if receiver has completely received the file [INITIALIZE THIS WITH FALSE IN THE START]
@@ -51,9 +51,9 @@ public class HostA{
     double SDEV =0;
     //another class for packet
     /*
-    *
-    * defunct for the sender
-    * */
+     *
+     * defunct for the sender
+     * */
     public void print(String s) {
         System.out.println(s);
     }
@@ -73,8 +73,8 @@ public class HostA{
                 System.out.println("Sender: Timeout!");
                 print("next seq num prior val: " + nextSeqNum);
                 print("base val rn: " + base);
-		nextSeqNum = base;
-		++numRetransmitions;
+                nextSeqNum = base;
+                ++numRetransmitions;
                 s.release();
             } catch(InterruptedException e){
                 e.printStackTrace();
@@ -309,15 +309,15 @@ public class HostA{
             byte[] BBFileName = null;
             byte[] fileLength = null;
             if (this.flag == 'S') {
-                 fileNameBB = fileName.getBytes();
-                 BBFileName = ByteBuffer.allocate(fileNameBB.length).put(fileNameBB).array();
-                 fileLength = ByteBuffer.allocate(4).putInt(fileNameBB.length).array();
+                fileNameBB = fileName.getBytes();
+                BBFileName = ByteBuffer.allocate(fileNameBB.length).put(fileNameBB).array();
+                fileLength = ByteBuffer.allocate(4).putInt(fileNameBB.length).array();
 
             }
             if(this.flag=='S'){
                 packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + 4 + fileNameBB.length);
             }else {
-                 packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + lengthDataSegment);
+                packet = ByteBuffer.allocate(4 + 4 + 8 + 4 + 4 + lengthDataSegment);
             }
             packet.put(seqNumberBb);
             packet.put(ackNumBB);
@@ -335,7 +335,7 @@ public class HostA{
              * */
             if(this.flag != 'S' && this.flag!='A' && this.seqNumber != 0) {
                 this.timer.schedule(new Timeout(), (long) TO);
-               // print("TIMER INSTALLED TO SYN # " + this.seqNumber + " TIMER VAL: " + 1000);
+                // print("TIMER INSTALLED TO SYN # " + this.seqNumber + " TIMER VAL: " + 1000);
             }
             else {
                 this.timer.schedule(new Timeout(), (long) 5000);
@@ -510,29 +510,22 @@ public class HostA{
                                          *
                                          * */
                                         // empty data seg that is to be initialized with required data to be sent
-                                        if(nextSeqNum < base + (win_size)) {
+                                        if(nextSeqNum < base + (win_size*PACKETSIZE)) {
                                             s.acquire();
 
 
                                             byte[] dataRead = new byte[PACKETSIZE-24];
                                             Packet newDataPktInstance = null;
-                                            /*
-                                             * NOTE:	that I have changed the packetlist to contain elements of Packet type
-                                             * */
-                                            if ((nextSeqNum) < packetsList.size()) {
-                                  		print("**************RETRANSMITTING SYN #"+ (nextSeqNum) + " ********************"); 
-				               if(nextSeqNum>0) {
-                                                    newDataPktInstance = packetsList.get(nextSeqNum-1);//-PACKETSIZE);
-                                                }else{
-                                                    newDataPktInstance = packetsList.get(nextSeqNum );
-                                                }
+                                            if (packetsList.get(new Integer(nextSeqNum)) !=null) {
+                                                print("EVER HIT THIS CONDITION");
+                                                newDataPktInstance = packetsList.get(nextSeqNum);
                                                 newDataPktInstance.timer = new Timer();
-
-
-                                                print("RETRANSMITTING PACKET WITH SYN #" + newDataPktInstance.seqNumber);
+                                                print("RETRANSMITTING # " + newDataPktInstance.seqNumber);
                                             }
                                             // if normal case and not retransmission
                                             else {
+
+
                                                 // read the slice of the file (set as 1024 for convenience now but has to be
                                                 // changed to MTU and be taken an command line arg)
                                                 terminationFlag = fileInStream.read(dataRead);
@@ -540,14 +533,17 @@ public class HostA{
                                                 if (terminationFlag == -1) {
 
                                                     newDataPktInstance = new Packet(nextSeqNum, new byte[0], 'F', -2);
-                                                
-						}
+
+                                                }
                                                 //CAUTION flag is 'n'
                                                 else {
                                                     newDataPktInstance = new Packet(nextSeqNum, dataRead, 'D', 0);
                                                 }// add the new packet to be sent into the unacked packets buffer
-                                                packetsList.add(newDataPktInstance);
+                                                packetsList.put(new Integer(nextSeqNum), newDataPktInstance);
+                                                print("CONTAINS TEST --> " + packetsList.contains(new Integer(nextSeqNum)));
+
                                                 // this might cause null pointer
+
                                             }
 
                                             ByteBuffer normalPkt = newDataPktInstance.createPacket();
@@ -557,20 +553,20 @@ public class HostA{
                                             ++numDataPacketSent;
 
                                             if (!bufferEndLoopExit) {
-                                                nextSeqNum = nextSeqNum+1;
+                                                nextSeqNum = nextSeqNum+PACKETSIZE;
                                             }
                                             s.release();
 
                                         }
-                                        print("WAITING FOR TIMEOUT");
+                                        //print("WAITING FOR TIMEOUT");
                                         Thread.sleep(5);
                                     }
 
                                 } catch (InterruptedException ip) {
                                     /*
-                                    *
-                                    * MAJOR QUERY WARNING: 1001001
-                                    * */
+                                     *
+                                     * MAJOR QUERY WARNING: 1001001
+                                     * */
                                     bufferEndLoopExit = true;
                                     print("interrupt OCCURED INDICATING THE ARRIVAL OF RESENT SYN + ACK PACKET");
                                 }
@@ -640,10 +636,10 @@ public class HostA{
                 //print("IN THE FORMULA COMPUTATION PART: " + TO);
 
             }else{
-               // print("nano time: --> : " + System.nanoTime() + " timestamp: --> " + currPacket.timestamp);
+                // print("nano time: --> : " + System.nanoTime() + " timestamp: --> " + currPacket.timestamp);
 
                 SRTT = Math.abs(System.nanoTime() - currPacket.getTimestamp()) + 200000;
-               // print("SRTT BEFORE CONVERSION " + SRTT/1000000);
+                // print("SRTT BEFORE CONVERSION " + SRTT/1000000);
 
                 SRTT = SRTT / 1000000;//TimeUnit.MILLISECONDS.convert((long)SRTT, TimeUnit.NANOSECONDS);
                 //print("ERTT --> " + ERTT + " SRTT--> " + SRTT);
@@ -695,20 +691,24 @@ public class HostA{
                         else {
                             if (ackNumberFromPkt != -1) {
                                 //dup ack detected
-                                if (base == ackNumberFromPkt+1) {
+                                if (base >= ackNumberFromPkt+PACKETSIZE) {
 
                                     print("DETECTED DUP ACK AT #" + ackNumberFromPkt);
                                     print("PACKET WITH ACKNUMBER MENTIONE ABOVE IS LOST");
                                     //then retransmit condition that is
                                     s.acquire();
-                                    packetsList.get(ackNumberFromPkt).getTimer().cancel();
+
                                     ++dupAckCounter;
 
-                                    if (dupAckCounter >= 4) {
+                                    if (dupAckCounter >= 3) {
                                         dupAckCounter =0;
-					
+                                        //  if(packetsList.contains(new Integer(base))!=false)
+                                        //packetsList.get(new Integer(base)).getTimer().cancel();
                                         toberetrans = ackNumberFromPkt;
-                                        nextSeqNum = base;
+                                        if (base > 0) {
+                                            nextSeqNum = base - PACKETSIZE;
+                                        }else
+                                            nextSeqNum = base;
                                     }
                                     ++numRetransmitions;
                                     s.release();
@@ -719,14 +719,14 @@ public class HostA{
 
                                     System.exit(0);
                                 } else {
-                                    base = ackNumberFromPkt +1;
+                                    base = ackNumberFromPkt +PACKETSIZE;
                                     s.acquire();
 
                                     adaptiveTimeOutCompute(receivedAck.ackNum, receivedAck);
                                     print("PACKET WITH ACK #" + ackNumberFromPkt + " WAS RECEIVED IN THE SENDER");
-                                    if (packetsList.get(ackNumberFromPkt) != null) {
-                                        packetsList.get(ackNumberFromPkt).getTimer().cancel();
-                                    }
+                                    //if (packetsList.contains(new Integer(ackNumberFromPkt))!= false) {
+                                    packetsList.get(new Integer(ackNumberFromPkt)).getTimer().cancel();
+                                    //}
                                     s.release();
                                     //refresh the timer for this
                                 }
@@ -749,22 +749,23 @@ public class HostA{
 
     //constructor for the main class
     public HostA(int sk4_dst_port, String remoteIP, int sk1_dst_port, String fileName /* only path has to be taken*/
-    , int mtu, int cws
+            , int mtu, int cws
     ) {
         base = 0;
         nextSeqNum = 0;
 
         /*
-        *
-        * init all the global vars with the passed on args
-        *
-        * */
+         *
+         * init all the global vars with the passed on args
+         *
+         * */
         PACKETSIZE = mtu;   //given by the args mentioned through TCPEnd
         win_size = cws; //given by the args mentioned through TCPEnd
 
 
         this.fileName = fileName;
-        packetsList = new Vector<Packet>(win_size);
+        packetsList = new ConcurrentHashMap<Integer,Packet>();
+
         bufferEndLoopExit = false;
         DatagramSocket sk1, sk4;
         s = new Semaphore(1);
@@ -773,7 +774,7 @@ public class HostA{
 
         try {
             // create sockets
-           // sk1 = new DatagramSocket();				// outgoing channel
+            // sk1 = new DatagramSocket();				// outgoing channel
             sk4 = new DatagramSocket(sk4_dst_port);	// incoming channel
 
             // create threads to process data
@@ -789,15 +790,9 @@ public class HostA{
         }
     }
 
-    //main method for the main class
-   /* public static void main(String args[]) {
-        if (args.length != 4) {
-            System.err.println("Usage: java Sender sk1_dst_port, sk4_dst_port, inputFilePath, outputFileName");
-            System.exit(-1);
-        }
-        else new HostA(Integer.parseInt(args[0]), Integer.parseInt(args[1]), args[2], args[3]);
-    }*/
+
 
 
 }
+
 

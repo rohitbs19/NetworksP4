@@ -241,14 +241,7 @@ public class receiver{
             byte[] lengthField = copyOfRange(inData, 16, 20);
             int length = ByteBuffer.wrap(lengthField).getInt();
 
-           /* int shiftedLength = length << 3;
-            if ((shiftedLength + 4)==length) {
-                this.flag = 'S';
-            } else if ((shiftedLength + 2) == length) {
-                this.flag='F';
-            } else if ((shiftedLength + 1) == length) {
-                this.flag = 'A';
-            }*/
+
             int i =0;
             String extractFlagBitsMask = "00000000000000000000000000001111";
             int extractMaskValue = new BigInteger(extractFlagBitsMask, 2).intValue();
@@ -641,9 +634,9 @@ public class receiver{
 
                                     System.out.println("sent a normal ack with ack #" + dataPacket.seqNumber);
                                 }
-
+                                print("data-> lengtth ->: " + (data.length - 24));
                                 fileOutStream.write(data, 24, inPkt.getLength() - 24);
-                                nextByteExpected = nextByteExpected +1;
+                                nextByteExpected = nextByteExpected +PACKETSIZE;
                                 //print("seqNUMBER CONTAINED IN THE DATA PACKET RECEIVED " + dataPacket.seqNumber);
 
 
@@ -660,7 +653,7 @@ public class receiver{
                                     Packet dupAck = new Packet(0, null, 'A', dataPacket.seqNumber);
                                     print("*********************DUP ACK SENT THROUGH THE NEW CONDITION*************************");
                                     dupAck.packetString();
-
+                                  //  fileOutStream.write(data, 24, inPkt.getLength() - 24);
                                     ByteBuffer dupAckPkt = dupAck.createPacket();
                                     socket_1.send(new DatagramPacket(dupAckPkt.array(), dupAckPkt.array().length, destAddr, destPortForTimer));
 
@@ -683,9 +676,9 @@ public class receiver{
                             System.out.println("in-valid checksum");
 
                             Packet dupAck = new Packet(0, null, 'A', nextByteExpected);
-                            print("*********************DUP ACK SENT*************************");
+                            print("*********************DUP ACK SENT*********************************************");
                             dupAck.packetString();
-                            print("*********************DUP ACK SENT*************************");
+                            print("*********************DUP ACK SENT*********************************************");
                             ByteBuffer dupAckPkt = dupAck.createPacket();
                             socket_1.send(new DatagramPacket(dupAckPkt.array(), dupAckPkt.array().length, destAddr, destPortForTimer));
 
@@ -731,4 +724,5 @@ public class receiver{
     }
 */
 }
+
 
