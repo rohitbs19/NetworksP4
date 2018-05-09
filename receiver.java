@@ -100,7 +100,7 @@ public class receiver{
         if (timer != null) timer.cancel();
         if (isNewTimer){
             timer = new Timer();
-            timer.schedule(new receiver.Timeout(), 1000);
+            timer.schedule(new receiver.Timeout(), 200);
         }
     }
 
@@ -111,7 +111,7 @@ public class receiver{
                 System.out.println("receiver: Timeout!");
                 Packet SYNACK = new Packet(0, null, 'Q', 1);
                 ByteBuffer synack = SYNACK.createPacket();
-                socket_2.send(new DatagramPacket(synack.array(), synack.array().length,destAddr,destPortForTimer));
+                socket_1.send(new DatagramPacket(synack.array(), synack.array().length,destAddr,destPortForTimer));
                 s.release();
             } catch(Exception e){
                 e.printStackTrace();
@@ -260,6 +260,8 @@ public class receiver{
             int dMaskValue = new BigInteger(DMask, 2).intValue();
             String synackMask = "00000000000000000000000000000101";
             int synackValue = new BigInteger(synackMask, 2).intValue();
+            String finackMask = "00000000000000000000000000001001";
+            int finackValue = new BigInteger(finackMask, 2).intValue();
 
             if ((shiftedLength & synMaskValue) == 0) {
                 //print("PACKET TYPE IS --> SYN1");
@@ -276,7 +278,11 @@ public class receiver{
             } else if ((shiftedLength & synackValue) == 0) {
                 //print("PACKET TYPE IS --> SYN + ACK");
                 this.flag = 'Q';
+            }else if ((shiftedLength & finackValue) == 0) {
+                //print("PACKET TYPE IS --> SYN + ACK");
+                this.flag = 'H';
             }
+
             //byte[] type = copyOfRange(inData, 12, 14);
             //print("type = " + type);
             //this.flag = ByteBuffer.wrap(type).getChar();
@@ -361,6 +367,8 @@ public class receiver{
                 mask = "00000000000000000000000000000001";
             }else if(flag=='Q'){
                 mask = "00000000000000000000000000001010";
+            }else if (flag == 'H') { // finack
+                mask = "00000000000000000000000000000110";
             }
             else{
                 mask = "00000000000000000000000000000000";
@@ -472,7 +480,7 @@ public class receiver{
                 boolean transferComplete = false;
                 int counterForThreeWay = 16;
                 while (ThreeWayContinue) {
-                    System.out.println("ENTERS THE HANDSHAKE WHILE");
+                    //System.out.println("ENTERS THE HANDSHAKE WHILE");
 
                     --counterForThreeWay;
 
@@ -481,12 +489,14 @@ public class receiver{
                     destPortForTimer = inPkt.getPort();
 
 
-                    print("the port decided on the receivers end --> " + destPortForTimer);
-                    print("the ADDR decided on the receivers end --> " + destAddr);
+                    //print("the port decided on the receivers end --> " + destPortForTimer);
+                    //print("the ADDR decided on the receivers end --> " + destAddr);
 
                     Packet ourPacketFormat = new Packet();
                     ourPacketFormat.generatePacketFromDatagramPacket(data);
-
+                    print("recv " + (ourPacketFormat.timeStamp/1000000) + " " + ourPacketFormat.flag + " " +
+                            ourPacketFormat.seqNumber + " " + "0" + " "
+                            + ourPacketFormat.ackNum);
 
 
 
@@ -494,16 +504,16 @@ public class receiver{
                     int FileLen = ByteBuffer.wrap(fileLength).getInt();
                     byte[] fileName = copyOfRange(data, 28, 28 + FileLen);
                     String fileName2 = new String(fileName);
-                    print("FILE NAME RECEIVED: " + fileName2);
+                    //print("FILE NAME RECEIVED: " + fileName2);
 
-                    File file = new File("../"+fileName2);
+                    File file = new File("../" + fileName2);
 
                     fileOutStream = new FileOutputStream(file);
 
 
-                    ourPacketFormat.packetString();
+//                    ourPacketFormat.packetString();
 
-                    System.out.println("is Valid SYN  = " + ourPacketFormat.isValidSyn());
+                    //System.out.println("is Valid SYN  = " + ourPacketFormat.isValidSyn());
                     if (ourPacketFormat.isValidSyn()) {
 
                         ThreeWayContinue=false;
@@ -521,9 +531,10 @@ public class receiver{
                                     synackPkt.array().length,
                                     destAddr,
                                     destPortForTimer));
+                            s.acquire();
+                            setTimer(true);
 
-
-                            System.out.println("SENT A SYN + ACK");
+                            //System.out.println("SENT A SYN + ACK");
 
                             // now the second packet that the receiver has to receive is an ack
                             /*
@@ -537,14 +548,17 @@ public class receiver{
 
                             Packet ackPacket = new Packet();
                             ackPacket.generatePacketFromDatagramPacket(data);
-
-                            ackPacket.packetString();
+                            print("recv " + (ackPacket.timeStamp/1000000) + " " + ackPacket.flag + " " +
+                                    ackPacket.seqNumber + " " + "0" + " "
+                                    + ackPacket.ackNum);
+                            //ackPacket.packetString();
                             if (ackPacket.isValidAck()) {
                                 setTimer(false);
-                                System.out.println("RECEIVED THE EXPECTED ACK!");
+                                //System.out.println("RECEIVED THE EXPECTED ACK!");
                                 lastAck = true;
                                 connectionSetupFlag = true;
                             }
+                            s.release();
 
                         }
                     } else if (counterForThreeWay >= 0) {
@@ -554,7 +568,7 @@ public class receiver{
                     }else{
 
                         ThreeWayContinue = false;
-                        System.out.println("DID NOT receive the first Syn in the handshake");
+                        //System.out.println("DID NOT receive the first Syn in the handshake");
                         System.exit(-1);
 
                     }
@@ -571,10 +585,13 @@ public class receiver{
 
 
                         socket_1.receive(inPkt);
+
                         lastByteRead++;
                         Packet dataPacket = new Packet();
                         dataPacket.generatePacketFromDatagramPacket(data);
-
+                        print("recv " + (dataPacket.timeStamp/1000000) + " " + dataPacket.flag + " " +
+                                dataPacket.seqNumber + " " + dataPacket.dataSeg.length + " "
+                                + dataPacket.ackNum);
 
                         /*
                          *
@@ -582,18 +599,21 @@ public class receiver{
                          *
                          *
                          * */
-                        print("DATA PACKET RECEIVED-----> START");
+                        //print("DATA PACKET RECEIVED-----> START");
                         dataPacket.createPacket();
-                        dataPacket.packetString();
+                        //dataPacket.packetString();
 
-                        print("DATA PACKET RECEIVED-----> END");
-
-                        if (dataPacket.isValidPacket()) {
+                        /*print("DATA PACKET RECEIVED-----> END");
+                        print("VALIDITY CHECK --> " + dataPacket.isValidPacket());*/
+                        if (dataPacket.isValidPacket() && dataPacket.flag!='A') {
 
                             /*
                              * check if the it is the right order
                              * in other words is it the packet the receiver is expecting
                              * */
+                            if (dataPacket.flag == 'H') {
+                                System.exit(0);
+                            }
                             if (dataPacket.seqNumber == nextByteExpected) {
                                 /*
                                  * if final packet then issue teardown
@@ -607,7 +627,7 @@ public class receiver{
                                     /*
                                      * prob: 5-66 [args problem]
                                      * */
-                                    Packet tearDown = new Packet(0, null, 'F', -2);
+                                    Packet tearDown = new Packet(0, null, 'Q', dataPacket.seqNumber);
                                     ByteBuffer finPkt = tearDown.createPacket();
 
                                     /*
@@ -615,12 +635,18 @@ public class receiver{
                                      * prob: 6-66
                                      * */
                                     socket_1.send(new DatagramPacket(finPkt.array(), finPkt.array().length, destAddr, destPortForTimer));
-
-                                    transferComplete = true;
+                                    print("snd " + (tearDown.timeStamp/1000000) + " " + "F A" + " " +
+                                            tearDown.seqNumber + " " + "0" + " "
+                                            + tearDown.ackNum);
+                                    setTimer(true);
+                                    //transferComplete = true;
                                     System.out.println("closing connection phase has been reached");
                                     continue;
                                 } // time for normal ACK
-                                else {
+                                else if (dataPacket.flag == 'H') {
+                                    setTimer(false);
+                                    System.exit(0);
+                                } else {
 
                                     /*
                                      * [args problem] prob: 7-66
@@ -628,13 +654,15 @@ public class receiver{
                                     Packet normalAck = new Packet(0, null, 'A', dataPacket.seqNumber);
 
                                     ByteBuffer normalAckPkt = normalAck.createPacket();
-                                    normalAck.packetString();
+                               //     normalAck.packetString();
 
                                     socket_1.send(new DatagramPacket(normalAckPkt.array(), normalAckPkt.array().length, destAddr, destPortForTimer));
-
-                                    System.out.println("sent a normal ack with ack #" + dataPacket.seqNumber);
+                                    print("snd " + (normalAck.timeStamp/1000000) + " " + normalAck.flag + " " +
+                                            normalAck.seqNumber + " " + "0" + " "
+                                            + normalAck.ackNum);
+                                    //System.out.println("sent a normal ack with ack #" + dataPacket.seqNumber);
                                 }
-                                print("data-> lengtth ->: " + (data.length - 24));
+                                //print("data-> lengtth ->: " + (data.length - 24));
                                 fileOutStream.write(data, 24, inPkt.getLength() - 24);
                                 nextByteExpected = nextByteExpected +PACKETSIZE;
                                 //print("seqNUMBER CONTAINED IN THE DATA PACKET RECEIVED " + dataPacket.seqNumber);
@@ -651,23 +679,27 @@ public class receiver{
                                  * */
                                 if (dataPacket.seqNumber < nextByteExpected) {
                                     Packet dupAck = new Packet(0, null, 'A', dataPacket.seqNumber);
-                                    print("*********************DUP ACK SENT THROUGH THE NEW CONDITION*************************");
-                                    dupAck.packetString();
+                                    //print("*********************DUP ACK SENT THROUGH THE NEW CONDITION*************************");
+//                                    dupAck.packetString();
                                   //  fileOutStream.write(data, 24, inPkt.getLength() - 24);
                                     ByteBuffer dupAckPkt = dupAck.createPacket();
                                     socket_1.send(new DatagramPacket(dupAckPkt.array(), dupAckPkt.array().length, destAddr, destPortForTimer));
-
-                                    print("*********************DUP ACK SENT THROUGH THE NEW CONDITION*************************");
-                                    System.out.println("dup ack sent ack # " + nextByteExpected);
+                                    print("snd " + (dupAck.timeStamp/1000000) + " " + dupAck.flag + " " +
+                                            dupAck.seqNumber + " " + "0" + " "
+                                            + dupAck.ackNum);
+                                    //print("*********************DUP ACK SENT THROUGH THE NEW CONDITION*************************");
+                                    //System.out.println("dup ack sent ack # " + nextByteExpected);
                                 }else{
                                     Packet dupAck = new Packet(0, null, 'A', nextByteExpected);
-                                    print("*********************DUP ACK SENT*************************");
-                                    dupAck.packetString();
+                                    //print("*********************DUP ACK SENT*************************");
+//                                    dupAck.packetString();
 
                                     ByteBuffer dupAckPkt = dupAck.createPacket();
                                     socket_1.send(new DatagramPacket(dupAckPkt.array(), dupAckPkt.array().length, destAddr, destPortForTimer));
-
-                                    System.out.println("dup ack sent ack # " + nextByteExpected);
+                                    print("snd " + (dupAck.timeStamp/1000000) + " " + dupAck.flag + " " +
+                                            dupAck.seqNumber + " " + "0" + " "
+                                            + dupAck.ackNum);
+                                    //System.out.println("dup ack sent ack # " + nextByteExpected);
                                 }
 
                             }
@@ -676,9 +708,9 @@ public class receiver{
                             System.out.println("in-valid checksum");
 
                             Packet dupAck = new Packet(0, null, 'A', nextByteExpected);
-                            print("*********************DUP ACK SENT*********************************************");
-                            dupAck.packetString();
-                            print("*********************DUP ACK SENT*********************************************");
+                            //print("*********************DUP ACK SENT*********************************************");
+//                            dupAck.packetString();
+                            //print("*********************DUP ACK SENT*********************************************");
                             ByteBuffer dupAckPkt = dupAck.createPacket();
                             socket_1.send(new DatagramPacket(dupAckPkt.array(), dupAckPkt.array().length, destAddr, destPortForTimer));
 
